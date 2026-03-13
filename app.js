@@ -1108,7 +1108,12 @@ async function loadContracts() {
     assetDecimals,
     productCostBps,
     rewardBps,
-    assetSourceWallet
+    assetSourceWallet,
+    feeWallet,
+    productCostWallet,
+    rewardWallet,
+    defaultDirectWallet,
+    defaultIndirectWallet
   ] = await Promise.all([
     state.revenueShare.owner().catch(() => ethers.ZeroAddress),
     state.usdt.symbol().catch(() => "USDT"),
@@ -1117,8 +1122,21 @@ async function loadContracts() {
     state.asset.decimals().catch(() => 18),
     state.revenueShare.productCostBps().catch(() => 0n),
     state.revenueShare.rewardBps().catch(() => 0n),
-    state.rewarder.assetSourceWallet().catch(() => ethers.ZeroAddress)
+    state.rewarder.assetSourceWallet().catch(() => ethers.ZeroAddress),
+    state.revenueShare.feeWallet().catch(() => ethers.ZeroAddress),
+    state.revenueShare.productCostWallet().catch(() => ethers.ZeroAddress),
+    state.revenueShare.rewardWallet().catch(() => ethers.ZeroAddress),
+    state.revenueShare.defaultDirectWallet().catch(() => ethers.ZeroAddress),
+    state.revenueShare.defaultIndirectWallet().catch(() => ethers.ZeroAddress)
   ]);
+
+  console.log("合约钱包配置:");
+  console.log("- feeWallet:", feeWallet);
+  console.log("- productCostWallet:", productCostWallet);
+  console.log("- rewardWallet:", rewardWallet);
+  console.log("- defaultDirectWallet:", defaultDirectWallet);
+  console.log("- defaultIndirectWallet:", defaultIndirectWallet);
+  console.log("- assetSourceWallet:", assetSourceWallet);
 
   state.adminAddress = adminAddress;
   state.usdtSymbol = usdtSymbol;
@@ -1141,6 +1159,22 @@ async function loadContracts() {
   ui.assetSourceWallet.textContent = assetSourceWallet;
   ui.productCostBps.textContent = formatPercentFromBps(productCostBps);
   ui.rewardBps.textContent = formatPercentFromBps(rewardBps);
+
+  // 显示默认钱包地址
+  const defaultDirectWalletEl = document.getElementById("defaultDirectWallet");
+  const defaultIndirectWalletEl = document.getElementById("defaultIndirectWallet");
+  if (defaultDirectWalletEl) defaultDirectWalletEl.textContent = defaultDirectWallet;
+  if (defaultIndirectWalletEl) defaultIndirectWalletEl.textContent = defaultIndirectWallet;
+
+  // 检查默认钱包是否为零地址
+  if (defaultDirectWallet === ethers.ZeroAddress) {
+    console.error("错误: defaultDirectWallet 为零地址!");
+    if (defaultDirectWalletEl) defaultIndirectWalletEl.style.color = "#ff6f91";
+  }
+  if (defaultIndirectWallet === ethers.ZeroAddress) {
+    console.error("错误: defaultIndirectWallet 为零地址!");
+    if (defaultIndirectWalletEl) defaultIndirectWalletEl.style.color = "#ff6f91";
+  }
 
   // 获取并显示奖励池余额和授权
   try {
@@ -1577,6 +1611,30 @@ async function buyNow() {
       throw new Error("USDT 合约无法正常访问。可能原因：\n1. 合约地址错误\n2. 网络连接问题\n3. 该地址不是有效的 ERC20 合约");
     }
 
+    // 检查默认钱包配置
+    try {
+      const [defaultDirectWallet, defaultIndirectWallet] = await Promise.all([
+        state.revenueShare.defaultDirectWallet(),
+        state.revenueShare.defaultIndirectWallet()
+      ]);
+
+      if (defaultDirectWallet === ethers.ZeroAddress) {
+        throw new Error("合约配置错误：defaultDirectWallet 为零地址。请管理员调用 setWallets 设置正确的钱包地址。");
+      }
+      if (defaultIndirectWallet === ethers.ZeroAddress) {
+        throw new Error("合约配置错误：defaultIndirectWallet 为零地址。请管理员调用 setWallets 设置正确的钱包地址。");
+      }
+
+      console.log("默认钱包配置:");
+      console.log("- defaultDirectWallet:", defaultDirectWallet);
+      console.log("- defaultIndirectWallet:", defaultIndirectWallet);
+    } catch (walletError) {
+      if (walletError.message.includes("合约配置错误")) {
+        throw walletError;
+      }
+      console.warn("无法读取默认钱包配置:", walletError);
+    }
+
     // 1. 检查 USDT 余额
     let balance;
     try {
@@ -1684,8 +1742,27 @@ async function buyNow() {
         detailedError += "\n\npreviewSplit 调用也失败，可能是合约状态问题。";
       }
 
-      throw new Error(`交易预执行失败: ${detailedError}\n\n可能原因：\n1. 合约逻辑检查失败（如推荐人地址无效）\n2. 合约配置错误（奖励金库/Oracle 绑定不一致）\n3. 参数错误\n4. 奖励池余额不足\n5. 资产钱包未对 Rewarder 授权`);
+      // 输出详细的调试信息
+      console.log("=== 购买调试信息 ===");
+      console.log("用户地址:", state.account);
+      console.log("USDT 金额:", formatUnits(usdtAmount, state.usdtDecimals));
+      console.log("推荐人地址:", referrer);
+      console.log("最低奖励:", formatUnits(minAssetAmount, state.assetDecimals));
+      console.log("预估奖励:", formatUnits(state.lastPreviewReward, state.assetDecimals));
+      console.log("RevenueShare:", CONFIG.revenueShare);
+      console.log("Rewarder:", CONFIG.rewarder);
+      console.log("Oracle:", CONFIG.oracle);
+
+      throw new Error(`交易预执行失败: ${detailedError}\n\n可能原因：\n1. 合约逻辑检查失败（如推荐人地址无效）\n2. 合约配置错误（奖励金库/Oracle 绑定不一致）\n3. 参数错误\n4. 奖励池余额不足\n5. 资产钱包未对 Rewarder 授权\n\n请打开浏览器控制台(F12)查看详细调试信息。`);
     }
+
+    // 输出购买前的调试信息
+    console.log("=== 购买交易信息 ===");
+    console.log("用户地址:", state.account);
+    console.log("USDT 金额:", formatUnits(usdtAmount, state.usdtDecimals));
+    console.log("推荐人地址:", referrer);
+    console.log("最低奖励:", formatUnits(minAssetAmount, state.assetDecimals));
+    console.log("预估奖励:", formatUnits(state.lastPreviewReward, state.assetDecimals));
 
     // 发送购买交易
     const signerRevenueShare = state.revenueShare.connect(state.signer);
