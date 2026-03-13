@@ -86,6 +86,7 @@ const ui = {};
 // 存储键
 const STORAGE_KEY = "assetMallOrdersV1";
 const PRODUCT_STORAGE_KEY = "assetMallProductsV1";
+const ADMIN_STORAGE_KEY = "assetMallAdminsV1";
 
 const DEFAULT_PRODUCTS = [
   {
@@ -296,6 +297,9 @@ function analyzeError(error) {
   } else if (errorMessage.includes("internal json-rpc error")) {
     analysis.type = "rpc_error";
     analysis.suggestion = "可能的原因：\n1. 输入的 USDT 金额超过余额\n2. 合约地址配置错误\n3. 网络连接不稳定\n4. 合约已被暂停或出现故障\n\n请检查输入金额和合约配置";
+  } else if (msg.includes("erc20 call failed") || msg.includes("erc20")) {
+    analysis.type = "erc20_error";
+    analysis.suggestion = "USDT 合约调用失败，可能原因：\n1. USDT 合约地址配置错误\n2. 您没有足够的 USDT 余额\n3. USDT 授权额度不足\n4. 合约已被暂停\n\n请检查：\n- 合约配置中的 USDT 地址是否正确\n- 您的钱包中是否有足够的 USDT\n- 是否已点击'授权 USDT'按钮";
   }
 
   return analysis;
@@ -400,6 +404,99 @@ function saveStoredProducts(products) {
   const normalized = products.map(normalizeProduct);
   state.products = normalized;
   window.localStorage.setItem(PRODUCT_STORAGE_KEY, JSON.stringify(normalized));
+}
+
+// 管理员地址管理
+function loadStoredAdmins() {
+  try {
+    const raw = window.localStorage.getItem(ADMIN_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(addr => ethers.isAddress(addr));
+  } catch (error) {
+    console.error("加载管理员列表失败:", error);
+    return [];
+  }
+}
+
+function saveStoredAdmins(admins) {
+  const validAdmins = admins.filter(addr => ethers.isAddress(addr));
+  window.localStorage.setItem(ADMIN_STORAGE_KEY, JSON.stringify(validAdmins));
+}
+
+function addAdmin(address) {
+  if (!ethers.isAddress(address)) {
+    throw new Error("无效的钱包地址");
+  }
+  const normalized = ethers.getAddress(address);
+  const admins = loadStoredAdmins();
+  if (admins.some(addr => addr.toLowerCase() === normalized.toLowerCase())) {
+    throw new Error("该地址已经是管理员");
+  }
+  admins.push(normalized);
+  saveStoredAdmins(admins);
+  return normalized;
+}
+
+function removeAdmin(address) {
+  const normalized = ethers.getAddress(address);
+  let admins = loadStoredAdmins();
+  admins = admins.filter(addr => addr.toLowerCase() !== normalized.toLowerCase());
+  saveStoredAdmins(admins);
+}
+
+function getAllAdmins() {
+  const stored = loadStoredAdmins();
+  const config = CONFIG.adminWallets || [];
+  return [...new Set([...stored, ...config])];
+}
+
+function renderAdminList() {
+  const listEl = document.getElementById("adminList");
+  const statusEl = document.getElementById("adminManageStatus");
+  if (!listEl) return;
+
+  const admins = getAllAdmins();
+  const configAdmins = CONFIG.adminWallets || [];
+
+  if (admins.length === 0) {
+    listEl.innerHTML = '<div class="muted">暂无额外管理员，请添加。</div>';
+    return;
+  }
+
+  listEl.innerHTML = admins.map((addr, index) => {
+    const isConfig = configAdmins.some(a => a.toLowerCase() === addr.toLowerCase());
+    const isCurrentUser = state.account && addr.toLowerCase() === state.account.toLowerCase();
+    const label = isCurrentUser ? " (当前用户)" : "";
+    const source = isConfig ? "<span style='color: var(--accent); font-size: 11px;'>[配置文件]</span>" : "<span style='color: var(--accent-2); font-size: 11px;'>[手动添加]</span>";
+    const removeBtn = isConfig ? "" : `<button class="ghost" data-remove-admin="${addr}" style="padding: 6px 10px; font-size: 12px;">移除</button>`;
+
+    return `
+      <div class="admin-item" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: rgba(255,255,255,0.03); border-radius: 10px; margin-bottom: 8px;">
+        <div style="display: flex; align-items: center; gap: 8px; overflow: hidden;">
+          <code style="font-size: 13px; overflow: hidden; text-overflow: ellipsis;">${shortAddress(addr)}${label}</code>
+          ${source}
+        </div>
+        ${removeBtn}
+      </div>
+    `;
+  }).join("");
+
+  // 绑定移除按钮事件
+  listEl.querySelectorAll("[data-remove-admin]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const addr = btn.getAttribute("data-remove-admin");
+      if (confirm(`确定移除管理员 ${shortAddress(addr)} 吗？`)) {
+        removeAdmin(addr);
+        renderAdminList();
+        if (statusEl) {
+          statusEl.textContent = "管理员已移除。";
+          statusEl.className = "status ok";
+        }
+      }
+    });
+  });
 }
 
 function getActiveProducts() {
@@ -804,6 +901,9 @@ function renderAdminProducts() {
   ui.exportAllCsvBtn.classList.remove("hidden");
   ui.exportAllJsonBtn.classList.remove("hidden");
 
+  // 渲染管理员列表
+  renderAdminList();
+
   if (!state.products.length) {
     ui.productAdminList.innerHTML = '<div class="muted">暂无商品，请先新增商品。</div>';
     return;
@@ -972,6 +1072,21 @@ async function loadContracts() {
   state.usdtAddress = await state.revenueShare.usdt();
   state.assetAddress = await state.rewarder.assetToken();
 
+  console.log("合约配置信息:");
+  console.log("- RevenueShare 地址:", CONFIG.revenueShare);
+  console.log("- Rewarder 地址:", CONFIG.rewarder);
+  console.log("- Oracle 地址:", CONFIG.oracle);
+  console.log("- USDT 地址 (从合约获取):", state.usdtAddress);
+  console.log("- Asset 地址 (从合约获取):", state.assetAddress);
+
+  // 检查 USDT 地址是否是 BSC 主网的 USDT
+  const BSC_USDT = "0x55d398326f99059fF775485246999027B3197955";
+  if (state.usdtAddress.toLowerCase() !== BSC_USDT.toLowerCase()) {
+    console.warn("警告: 检测到的 USDT 地址与 BSC 主网 USDT 地址不匹配!");
+    console.warn("- 检测到的地址:", state.usdtAddress);
+    console.warn("- BSC 主网 USDT:", BSC_USDT);
+  }
+
   // 初始化代币合约
   state.usdt = new ethers.Contract(state.usdtAddress, ERC20_ABI, state.provider);
   state.asset = new ethers.Contract(state.assetAddress, ERC20_ABI, state.provider);
@@ -1018,6 +1133,21 @@ async function loadContracts() {
   ui.assetSourceWallet.textContent = assetSourceWallet;
   ui.productCostBps.textContent = formatPercentFromBps(productCostBps);
   ui.rewardBps.textContent = formatPercentFromBps(rewardBps);
+
+  // 获取并显示奖励池余额
+  try {
+    const assetBalance = await state.asset.balanceOf(assetSourceWallet);
+    const assetSourceBalanceEl = document.getElementById("assetSourceBalance");
+    if (assetSourceBalanceEl) {
+      assetSourceBalanceEl.textContent = formatUnits(assetBalance, state.assetDecimals) + " " + state.assetSymbol;
+    }
+  } catch (e) {
+    console.warn("无法获取奖励池余额:", e);
+    const assetSourceBalanceEl = document.getElementById("assetSourceBalance");
+    if (assetSourceBalanceEl) {
+      assetSourceBalanceEl.textContent = "无法读取";
+    }
+  }
 
   renderProducts();
   renderAdminProducts();
@@ -1089,10 +1219,11 @@ async function connectWithWallet(walletType) {
     // 检查是否为管理员
     const isContractOwner = state.adminAddress !== ethers.ZeroAddress &&
                             state.account.toLowerCase() === state.adminAddress.toLowerCase();
-    const isConfigAdmin = CONFIG.adminWallets.some(
+    const allAdmins = getAllAdmins();
+    const isStoredAdmin = allAdmins.some(
       addr => addr.toLowerCase() === state.account.toLowerCase()
     );
-    state.isAdmin = isContractOwner || isConfigAdmin;
+    state.isAdmin = isContractOwner || isStoredAdmin;
 
     ui.walletAddress.textContent = shortAddress(state.account);
     ui.networkName.textContent = state.chainId === CONFIG.chainId ? CONFIG.chainName : "Chain ID " + state.chainId;
@@ -1399,14 +1530,42 @@ async function buyNow() {
     // 详细前置检查
     setStatus("正在检查购买条件...", "warn");
 
+    // 0. 检查合约状态
+    try {
+      // 尝试调用一个 view 函数来检查合约是否正常工作
+      await state.revenueShare.usdt();
+    } catch (contractError) {
+      console.error("合约检查失败:", contractError);
+      throw new Error("RevenueShare 合约无法正常访问，请检查合约地址配置是否正确。");
+    }
+
+    // 检查 USDT 合约
+    try {
+      await state.usdt.symbol();
+      await state.usdt.decimals();
+    } catch (usdtError) {
+      console.error("USDT 合约检查失败:", usdtError);
+      throw new Error("USDT 合约无法正常访问。可能原因：\n1. 合约地址错误\n2. 网络连接问题\n3. 该地址不是有效的 ERC20 合约");
+    }
+
     // 1. 检查 USDT 余额
-    const balance = await state.usdt.balanceOf(state.account);
+    let balance;
+    try {
+      balance = await state.usdt.balanceOf(state.account);
+    } catch (e) {
+      throw new Error("无法读取 USDT 余额，请检查 USDT 合约配置。");
+    }
     if (balance < usdtAmount) {
       throw new Error(`USDT 余额不足。当前余额: ${formatUnits(balance, state.usdtDecimals)} ${state.usdtSymbol}, 需要: ${formatUnits(usdtAmount, state.usdtDecimals)} ${state.usdtSymbol}`);
     }
 
     // 2. 检查授权额度
-    const allowance = await state.usdt.allowance(state.account, CONFIG.revenueShare);
+    let allowance;
+    try {
+      allowance = await state.usdt.allowance(state.account, CONFIG.revenueShare);
+    } catch (e) {
+      throw new Error("无法读取 USDT 授权额度，请检查合约配置。");
+    }
     if (allowance < usdtAmount) {
       throw new Error(`USDT 授权额度不足。当前授权: ${formatUnits(allowance, state.usdtDecimals)} ${state.usdtSymbol}, 需要: ${formatUnits(usdtAmount, state.usdtDecimals)} ${state.usdtSymbol}。请先点击"授权 USDT"按钮。`);
     }
@@ -1425,6 +1584,45 @@ async function buyNow() {
     const bnbBalance = await state.browserProvider.getBalance(state.account);
     if (bnbBalance === 0n) {
       throw new Error("BNB 余额为 0，无法支付交易手续费。请先充值 BNB。");
+    }
+
+    // 6. 检查 AssetSourceWallet 是否有足够的 AssetToken 余额来支付奖励
+    try {
+      const assetSourceWallet = await state.rewarder.assetSourceWallet();
+      const assetBalance = await state.asset.balanceOf(assetSourceWallet);
+      console.log("AssetSourceWallet 信息:");
+      console.log("- 地址:", assetSourceWallet);
+      console.log("- AssetToken 余额:", formatUnits(assetBalance, state.assetDecimals), state.assetSymbol);
+      console.log("- 预估奖励:", formatUnits(state.lastPreviewReward, state.assetDecimals), state.assetSymbol);
+
+      if (assetBalance < state.lastPreviewReward) {
+        throw new Error(`奖励池余额不足！\nAssetSourceWallet (${shortAddress(assetSourceWallet)}) 的 ${state.assetSymbol} 余额: ${formatUnits(assetBalance, state.assetDecimals)}\n预估奖励: ${formatUnits(state.lastPreviewReward, state.assetDecimals)}\n\n请联系管理员充值奖励池。`);
+      }
+    } catch (e) {
+      if (e.message.includes("奖励池余额不足")) throw e;
+      console.warn("无法检查 AssetSourceWallet 余额:", e);
+    }
+
+    // 7. 尝试预估 Gas，检查交易是否会失败
+    try {
+      const signerRevenueShare = state.revenueShare.connect(state.signer);
+      await signerRevenueShare.purchase.estimateGas(usdtAmount, referrer, minAssetAmount);
+    } catch (estimateError) {
+      console.error("Gas 估算失败:", estimateError);
+      const errorMsg = extractError(estimateError);
+
+      // 尝试获取更详细的错误信息
+      let detailedError = errorMsg;
+      try {
+        // 尝试调用 previewSplit 来获取更多信息
+        const preview = await state.revenueShare.previewSplit(state.account, usdtAmount);
+        console.log("previewSplit 结果:", preview);
+      } catch (previewError) {
+        console.error("previewSplit 也失败了:", previewError);
+        detailedError += "\n\npreviewSplit 调用也失败，可能是合约状态问题。";
+      }
+
+      throw new Error(`交易预执行失败: ${detailedError}\n\n可能原因：\n1. 合约逻辑检查失败（如推荐人地址无效）\n2. 合约已被暂停\n3. 参数错误\n4. 奖励池余额不足`);
     }
 
     // 发送购买交易
@@ -1641,6 +1839,38 @@ async function init() {
     ui.connectBtn.addEventListener("click", connectWallet);
     ui.switchBtn.addEventListener("click", switchToBsc);
     ui.copyRefLinkBtn.addEventListener("click", copyReferralLink);
+
+    // 管理员管理事件
+    const addAdminBtn = document.getElementById("addAdminBtn");
+    const newAdminInput = document.getElementById("newAdminAddressInput");
+    const adminStatusEl = document.getElementById("adminManageStatus");
+
+    if (addAdminBtn && newAdminInput) {
+      addAdminBtn.addEventListener("click", () => {
+        try {
+          const address = newAdminInput.value.trim();
+          if (!address) {
+            if (adminStatusEl) {
+              adminStatusEl.textContent = "请输入钱包地址";
+              adminStatusEl.className = "status error";
+            }
+            return;
+          }
+          addAdmin(address);
+          newAdminInput.value = "";
+          renderAdminList();
+          if (adminStatusEl) {
+            adminStatusEl.textContent = "管理员添加成功！";
+            adminStatusEl.className = "status ok";
+          }
+        } catch (error) {
+          if (adminStatusEl) {
+            adminStatusEl.textContent = "添加失败: " + error.message;
+            adminStatusEl.className = "status error";
+          }
+        }
+      });
+    }
 
     // 钱包模态框事件
     ui.closeWalletModal.addEventListener("click", hideWalletModal);
