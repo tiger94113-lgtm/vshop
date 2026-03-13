@@ -62,6 +62,11 @@ const ERC20_ABI = [
   "function approve(address spender, uint256 amount) returns (bool)"
 ];
 
+const REVERT_ERROR_IFACE = new ethers.Interface([
+  "error Error(string)",
+  "error Panic(uint256)"
+]);
+
 // 应用状态
 const state = {
   provider: null,
@@ -231,28 +236,134 @@ function escapeHtml(value) {
     .replace(/'/g, "&#039;");
 }
 
+function collectErrorDetails(error, bucket = new Set(), depth = 0) {
+  if (!error || depth > 4) return bucket;
+
+  if (typeof error === "string") {
+    bucket.add(error);
+    return bucket;
+  }
+
+  if (typeof error !== "object") {
+    return bucket;
+  }
+
+  const candidateKeys = [
+    "message",
+    "shortMessage",
+    "reason",
+    "data",
+    "body",
+    "responseText",
+    "details"
+  ];
+
+  candidateKeys.forEach((key) => {
+    const value = error[key];
+    if (typeof value === "string" && value.trim()) {
+      bucket.add(value);
+    }
+  });
+
+  const nestedKeys = [
+    "error",
+    "info",
+    "cause",
+    "data",
+    "payload",
+    "response",
+    "originalError"
+  ];
+
+  nestedKeys.forEach((key) => {
+    if (error[key] && error[key] !== error) {
+      collectErrorDetails(error[key], bucket, depth + 1);
+    }
+  });
+
+  return bucket;
+}
+
+function extractHexData(value) {
+  if (typeof value !== "string") return "";
+  const match = value.match(/0x[0-9a-fA-F]{8,}/);
+  return match ? match[0] : "";
+}
+
+function decodeRevertData(data) {
+  if (!data || typeof data !== "string" || !data.startsWith("0x")) {
+    return "";
+  }
+
+  try {
+    const parsed = REVERT_ERROR_IFACE.parseError(data);
+    if (!parsed) return "";
+
+    if (parsed.name === "Error") {
+      return parsed.args[0];
+    }
+
+    if (parsed.name === "Panic") {
+      return `合约 Panic(${parsed.args[0].toString()})`;
+    }
+  } catch (error) {
+    // ignore decode failures
+  }
+
+  return "";
+}
+
 function extractError(error) {
-  // 尝试提取各种可能的错误信息
-  if (error?.info?.error?.message) return error.info.error.message;
-  if (error?.error?.message) return error.error.message;
-  if (error?.data?.message) return error.data.message;
-  if (error?.shortMessage) return error.shortMessage;
-  if (error?.reason) return error.reason;
+  const details = Array.from(collectErrorDetails(error));
+
+  for (const detail of details) {
+    const decoded = decodeRevertData(extractHexData(detail));
+    if (decoded) {
+      return decoded;
+    }
+  }
+
+  for (const detail of details) {
+    const normalized = detail.toLowerCase();
+    if (normalized.includes("user rejected")) return "用户取消了交易";
+    if (normalized.includes("insufficient funds")) return "BNB 余额不足支付 Gas 费";
+  }
+
+  for (const detail of details) {
+    if (!detail.includes("Internal JSON-RPC error")) {
+      return detail;
+    }
+  }
+
   if (error?.message) {
-    // 过滤掉常见的无用信息
     const msg = error.message;
-    if (msg.includes("user rejected")) return "用户取消了交易";
-    if (msg.includes("insufficient funds")) return "BNB 余额不足支付 Gas 费";
     if (msg.includes("Internal JSON-RPC error")) {
-      // 尝试从 error.data 获取更多信息
-      if (error.data) {
-        return `合约执行失败: ${JSON.stringify(error.data)}`;
-      }
-      return "合约执行失败，请检查: 1) USDT 授权额度 2) 网络连接 3) 合约地址配置";
+      return "钱包返回了笼统的 JSON-RPC 错误，请查看下方合约回退原因或浏览器控制台。";
     }
     return msg;
   }
+
   return "未知错误";
+}
+
+async function buildPurchaseTxRequest(usdtAmount, referrer, minAssetAmount) {
+  const signerRevenueShare = state.revenueShare.connect(state.signer);
+  const txRequest = await signerRevenueShare.purchase.populateTransaction(usdtAmount, referrer, minAssetAmount);
+  txRequest.from = state.account;
+  return txRequest;
+}
+
+async function simulatePurchase(usdtAmount, referrer, minAssetAmount) {
+  const txRequest = await buildPurchaseTxRequest(usdtAmount, referrer, minAssetAmount);
+
+  await state.provider.call(txRequest);
+
+  try {
+    return await state.provider.estimateGas(txRequest);
+  } catch (error) {
+    console.warn("公共 RPC 估算 Gas 失败，将在发送阶段回退到默认 gasLimit:", error);
+    return null;
+  }
 }
 
 // 详细的错误分析
@@ -263,7 +374,7 @@ function analyzeError(error) {
     suggestion: ""
   };
 
-  const msg = JSON.stringify(error).toLowerCase();
+  const msg = Array.from(collectErrorDetails(error)).join(" | ").toLowerCase();
   const errorMessage = (error?.message || "").toLowerCase();
   const errorData = error?.data || error?.error?.data || "";
 
@@ -1793,13 +1904,13 @@ async function buyNow() {
       console.warn("无法检查 AssetSourceWallet 余额:", e);
     }
 
-    // 7. 尝试预估 Gas，检查交易是否会失败
+    // 7. 用公共 RPC 先做静态模拟，避免钱包 estimateGas 的模糊报错直接中断购买
+    let publicRpcGasEstimate = null;
     try {
-      const signerRevenueShare = state.revenueShare.connect(state.signer);
-      await signerRevenueShare.purchase.estimateGas(usdtAmount, referrer, minAssetAmount);
-    } catch (estimateError) {
-      console.error("Gas 估算失败:", estimateError);
-      const errorMsg = extractError(estimateError);
+      publicRpcGasEstimate = await simulatePurchase(usdtAmount, referrer, minAssetAmount);
+    } catch (simulateError) {
+      console.error("购买静态模拟失败:", simulateError);
+      const errorMsg = extractError(simulateError);
 
       // 尝试获取更详细的错误信息
       let detailedError = errorMsg;
@@ -1823,7 +1934,7 @@ async function buyNow() {
       console.log("Rewarder:", CONFIG.rewarder);
       console.log("Oracle:", CONFIG.oracle);
 
-      throw new Error(`交易预执行失败: ${detailedError}\n\n可能原因：\n1. 合约逻辑检查失败（如推荐人地址无效）\n2. 合约配置错误（奖励金库/Oracle 绑定不一致）\n3. 参数错误\n4. 奖励池余额不足\n5. 资产钱包未对 Rewarder 授权\n\n请打开浏览器控制台(F12)查看详细调试信息。`);
+      throw new Error(`交易预执行失败: ${detailedError}\n\n可能原因：\n1. 推荐人绑定校验失败\n2. 滑点保护触发\n3. 奖励金库或 Oracle 配置异常\n4. 奖励池余额或授权不足\n5. 合约参数不满足当前链上状态\n\n请打开浏览器控制台(F12)查看详细调试信息。`);
     }
 
     // 输出购买前的调试信息
@@ -1840,14 +1951,18 @@ async function buyNow() {
 
     // 添加 gas 限制估算
     let gasLimit;
-    try {
+    if (publicRpcGasEstimate) {
+      gasLimit = (publicRpcGasEstimate * 120n) / 100n;
+    } else {
+      try {
       gasLimit = await signerRevenueShare.purchase.estimateGas(usdtAmount, referrer, minAssetAmount);
       // 增加 20% 缓冲
       gasLimit = (gasLimit * 120n) / 100n;
-    } catch (gasError) {
-      console.warn("Gas 估算失败:", gasError);
-      // 使用默认 gas 限制
-      gasLimit = 500000n;
+      } catch (gasError) {
+        console.warn("钱包侧 Gas 估算失败，回退到默认 gasLimit:", gasError);
+        // 使用默认 gas 限制，避免部分钱包因 estimateGas 模糊报错直接阻塞购买
+        gasLimit = 500000n;
+      }
     }
 
     const tx = await signerRevenueShare.purchase(usdtAmount, referrer, minAssetAmount, {
