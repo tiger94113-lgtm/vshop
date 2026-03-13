@@ -1,5 +1,5 @@
 // ============================================
-// Asset Mall - DApp 前端逻辑 
+// Asset Mall - DApp 前端逻辑
 // 适用于 GitHub Pages 静态部署
 // ============================================
 
@@ -34,7 +34,16 @@ const REVENUE_SHARE_ABI = [
   "function rewardBps() view returns (uint16)",
   "function referrerOf(address) view returns (address)",
   "function purchase(uint256 usdtAmount, address referrer, uint256 minAssetAmount)",
-  "function previewSplit(address user, uint256 usdtAmount) view returns (address directRecipient, address indirectRecipient, uint256 directAmount, uint256 indirectAmount, uint256 feeAmount, uint256 productCostAmount, uint256 rewardAmount)"
+  "function previewSplit(address user, uint256 usdtAmount) view returns (address directRecipient, address indirectRecipient, uint256 directAmount, uint256 indirectAmount, uint256 feeAmount, uint256 productCostAmount, uint256 rewardAmount)",
+  "function feeWallet() view returns (address)",
+  "function productCostWallet() view returns (address)",
+  "function rewardWallet() view returns (address)",
+  "function defaultDirectWallet() view returns (address)",
+  "function defaultIndirectWallet() view returns (address)",
+  "function assetARewarder() view returns (address)",
+  "function setWallets(address feeWallet, address productCostWallet, address rewardWallet, address defaultDirectWallet, address defaultIndirectWallet)",
+  "function setAssetARewarder(address newRewarder)",
+  "function setProductCostBps(uint16 newProductCostBps)"
 ];
 
 const REWARDER_ABI = [
@@ -61,6 +70,8 @@ const state = {
   account: null,
   chainId: null,
   lastWalletType: null,
+  activeWalletProvider: null,
+  isSubmitting: false,
   adminAddress: ethers.ZeroAddress,
   isAdmin: false,
   products: [],
@@ -79,7 +90,8 @@ const state = {
   productCostBps: 0n,
   rewardBps: 0n,
   boundReferrer: ethers.ZeroAddress,
-  lastPreviewReward: 0n
+  lastPreviewReward: 0n,
+  lastSplitPreview: null
 };
 
 // UI 元素引用
@@ -88,8 +100,6 @@ const ui = {};
 // 存储键
 const STORAGE_KEY = "assetMallOrdersV1";
 const PRODUCT_STORAGE_KEY = "assetMallProductsV1";
-const ADMIN_STORAGE_KEY = "assetMallAdminsV1";
-
 const DEFAULT_PRODUCTS = [
   {
     id: "starter-pack",
@@ -350,6 +360,7 @@ function saveStoredOrders(orders) {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(orders));
   } catch (error) {
     console.error("保存订单失败:", error);
+    throw new Error("订单保存失败。浏览器本地存储空间不足或被禁用，请先处理后再继续。");
   }
 }
 
@@ -414,50 +425,17 @@ function saveStoredProducts(products) {
   window.localStorage.setItem(PRODUCT_STORAGE_KEY, JSON.stringify(normalized));
 }
 
-// 管理员地址管理
-function loadStoredAdmins() {
-  try {
-    const raw = window.localStorage.getItem(ADMIN_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(addr => ethers.isAddress(addr));
-  } catch (error) {
-    console.error("加载管理员列表失败:", error);
-    return [];
-  }
-}
-
-function saveStoredAdmins(admins) {
-  const validAdmins = admins.filter(addr => ethers.isAddress(addr));
-  window.localStorage.setItem(ADMIN_STORAGE_KEY, JSON.stringify(validAdmins));
-}
-
-function addAdmin(address) {
-  if (!ethers.isAddress(address)) {
-    throw new Error("无效的钱包地址");
-  }
-  const normalized = ethers.getAddress(address);
-  const admins = loadStoredAdmins();
-  if (admins.some(addr => addr.toLowerCase() === normalized.toLowerCase())) {
-    throw new Error("该地址已经是管理员");
-  }
-  admins.push(normalized);
-  saveStoredAdmins(admins);
-  return normalized;
-}
-
-function removeAdmin(address) {
-  const normalized = ethers.getAddress(address);
-  let admins = loadStoredAdmins();
-  admins = admins.filter(addr => addr.toLowerCase() !== normalized.toLowerCase());
-  saveStoredAdmins(admins);
-}
-
 function getAllAdmins() {
-  const stored = loadStoredAdmins();
-  const config = CONFIG.adminWallets || [];
-  return [...new Set([...stored, ...config])];
+  const configAdmins = Array.isArray(CONFIG.adminWallets) ? CONFIG.adminWallets : [];
+  const normalized = configAdmins
+    .filter((addr) => ethers.isAddress(addr))
+    .map((addr) => ethers.getAddress(addr));
+
+  if (ethers.isAddress(state.adminAddress) && state.adminAddress !== ethers.ZeroAddress) {
+    normalized.unshift(ethers.getAddress(state.adminAddress));
+  }
+
+  return [...new Set(normalized)];
 }
 
 function renderAdminList() {
@@ -466,19 +444,24 @@ function renderAdminList() {
   if (!listEl) return;
 
   const admins = getAllAdmins();
-  const configAdmins = CONFIG.adminWallets || [];
 
   if (admins.length === 0) {
-    listEl.innerHTML = '<div class="muted">暂无额外管理员，请添加。</div>';
+    listEl.innerHTML = '<div class="muted">当前未配置额外管理员，只有合约 owner 拥有管理员权限。</div>';
+    if (statusEl) {
+      statusEl.textContent = "管理员权限来源：链上 owner + 前端配置白名单。";
+      statusEl.className = "status warn";
+    }
     return;
   }
 
-  listEl.innerHTML = admins.map((addr, index) => {
-    const isConfig = configAdmins.some(a => a.toLowerCase() === addr.toLowerCase());
+  listEl.innerHTML = admins.map((addr) => {
+    const isOwner = state.adminAddress !== ethers.ZeroAddress &&
+      addr.toLowerCase() === state.adminAddress.toLowerCase();
     const isCurrentUser = state.account && addr.toLowerCase() === state.account.toLowerCase();
     const label = isCurrentUser ? " (当前用户)" : "";
-    const source = isConfig ? "<span style='color: var(--accent); font-size: 11px;'>[配置文件]</span>" : "<span style='color: var(--accent-2); font-size: 11px;'>[手动添加]</span>";
-    const removeBtn = isConfig ? "" : `<button class="ghost" data-remove-admin="${addr}" style="padding: 6px 10px; font-size: 12px;">移除</button>`;
+    const source = isOwner
+      ? "<span style='color: var(--accent); font-size: 11px;'>[合约 Owner]</span>"
+      : "<span style='color: var(--accent-2); font-size: 11px;'>[配置白名单]</span>";
 
     return `
       <div class="admin-item" style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: rgba(255,255,255,0.03); border-radius: 10px; margin-bottom: 8px;">
@@ -486,25 +469,15 @@ function renderAdminList() {
           <code style="font-size: 13px; overflow: hidden; text-overflow: ellipsis;">${shortAddress(addr)}${label}</code>
           ${source}
         </div>
-        ${removeBtn}
+        <span style="font-size: 12px; color: var(--muted);">只读</span>
       </div>
     `;
   }).join("");
 
-  // 绑定移除按钮事件
-  listEl.querySelectorAll("[data-remove-admin]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      const addr = btn.getAttribute("data-remove-admin");
-      if (confirm(`确定移除管理员 ${shortAddress(addr)} 吗？`)) {
-        removeAdmin(addr);
-        renderAdminList();
-        if (statusEl) {
-          statusEl.textContent = "管理员已移除。";
-          statusEl.className = "status ok";
-        }
-      }
-    });
-  });
+  if (statusEl) {
+    statusEl.textContent = "管理员权限来源：链上 owner + 前端配置白名单，不再允许浏览器本地手动添加。";
+    statusEl.className = "status ok";
+  }
 }
 
 function getActiveProducts() {
@@ -1109,6 +1082,8 @@ async function loadContracts() {
     productCostBps,
     rewardBps,
     assetSourceWallet,
+    rewarderRevenueShare,
+    rewarderOracle,
     feeWallet,
     productCostWallet,
     rewardWallet,
@@ -1123,6 +1098,8 @@ async function loadContracts() {
     state.revenueShare.productCostBps().catch(() => 0n),
     state.revenueShare.rewardBps().catch(() => 0n),
     state.rewarder.assetSourceWallet().catch(() => ethers.ZeroAddress),
+    state.rewarder.revenueShareContract().catch(() => ethers.ZeroAddress),
+    state.rewarder.assetOracle().catch(() => ethers.ZeroAddress),
     state.revenueShare.feeWallet().catch(() => ethers.ZeroAddress),
     state.revenueShare.productCostWallet().catch(() => ethers.ZeroAddress),
     state.revenueShare.rewardWallet().catch(() => ethers.ZeroAddress),
@@ -1157,19 +1134,32 @@ async function loadContracts() {
   ui.usdtTokenAddress.textContent = state.usdtAddress;
   ui.assetTokenAddress.textContent = state.assetAddress;
   ui.assetSourceWallet.textContent = assetSourceWallet;
+  ui.rewarderRevenueShare.textContent = rewarderRevenueShare;
+  ui.rewarderOracle.textContent = rewarderOracle;
   ui.productCostBps.textContent = formatPercentFromBps(productCostBps);
   ui.rewardBps.textContent = formatPercentFromBps(rewardBps);
+
+  if (ui.rewarderRevenueShare) {
+    ui.rewarderRevenueShare.style.color =
+      rewarderRevenueShare.toLowerCase() === CONFIG.revenueShare.toLowerCase() ? "" : "#ff6f91";
+  }
+  if (ui.rewarderOracle) {
+    ui.rewarderOracle.style.color =
+      rewarderOracle.toLowerCase() === CONFIG.oracle.toLowerCase() ? "" : "#ff6f91";
+  }
 
   // 显示默认钱包地址
   const defaultDirectWalletEl = document.getElementById("defaultDirectWallet");
   const defaultIndirectWalletEl = document.getElementById("defaultIndirectWallet");
   if (defaultDirectWalletEl) defaultDirectWalletEl.textContent = defaultDirectWallet;
   if (defaultIndirectWalletEl) defaultIndirectWalletEl.textContent = defaultIndirectWallet;
+  if (defaultDirectWalletEl) defaultDirectWalletEl.style.color = "";
+  if (defaultIndirectWalletEl) defaultIndirectWalletEl.style.color = "";
 
   // 检查默认钱包是否为零地址
   if (defaultDirectWallet === ethers.ZeroAddress) {
     console.error("错误: defaultDirectWallet 为零地址!");
-    if (defaultDirectWalletEl) defaultIndirectWalletEl.style.color = "#ff6f91";
+    if (defaultDirectWalletEl) defaultDirectWalletEl.style.color = "#ff6f91";
   }
   if (defaultIndirectWallet === ethers.ZeroAddress) {
     console.error("错误: defaultIndirectWallet 为零地址!");
@@ -1283,10 +1273,10 @@ async function connectWithWallet(walletType) {
     const isContractOwner = state.adminAddress !== ethers.ZeroAddress &&
                             state.account.toLowerCase() === state.adminAddress.toLowerCase();
     const allAdmins = getAllAdmins();
-    const isStoredAdmin = allAdmins.some(
+    const isConfiguredAdmin = allAdmins.some(
       addr => addr.toLowerCase() === state.account.toLowerCase()
     );
-    state.isAdmin = isContractOwner || isStoredAdmin;
+    state.isAdmin = isContractOwner || isConfiguredAdmin;
 
     ui.walletAddress.textContent = shortAddress(state.account);
     ui.networkName.textContent = state.chainId === CONFIG.chainId ? CONFIG.chainName : "Chain ID " + state.chainId;
@@ -1299,11 +1289,9 @@ async function connectWithWallet(walletType) {
     await refreshWalletMetrics();
     await refreshPreview();
     renderAdminProducts();
+    await reconcileOrders();
+    bindWalletProviderEvents(provider);
     renderOrders();
-
-    // 设置事件监听
-    provider.on("accountsChanged", handleAccountsChanged);
-    provider.on("chainChanged", handleChainChanged);
 
     const name = WALLET_CONFIG[walletType]?.name || "钱包";
     setStatus(`${name} 连接成功。`, "ok");
@@ -1413,6 +1401,83 @@ function computeMinimumReward(estimatedReward) {
   return estimatedReward * (10000n - bps) / 10000n;
 }
 
+function setBuyPending(isPending) {
+  state.isSubmitting = isPending;
+  if (!ui.buyBtn) return;
+
+  ui.buyBtn.disabled = isPending;
+  ui.buyBtn.textContent = isPending ? "购买处理中..." : "立即购买";
+}
+
+function bindWalletProviderEvents(provider) {
+  if (state.activeWalletProvider && state.activeWalletProvider.removeListener) {
+    state.activeWalletProvider.removeListener("accountsChanged", handleAccountsChanged);
+    state.activeWalletProvider.removeListener("chainChanged", handleChainChanged);
+  }
+
+  state.activeWalletProvider = provider || null;
+
+  if (provider && provider.on) {
+    provider.on("accountsChanged", handleAccountsChanged);
+    provider.on("chainChanged", handleChainChanged);
+  }
+}
+
+async function getSplitPreview(usdtAmount) {
+  const previewUser = state.account || ethers.ZeroAddress;
+  const preview = await state.revenueShare.previewSplit(previewUser, usdtAmount);
+
+  return {
+    directRecipient: preview[0],
+    indirectRecipient: preview[1],
+    directAmount: BigInt(preview[2]),
+    indirectAmount: BigInt(preview[3]),
+    feeAmount: BigInt(preview[4]),
+    productCostAmount: BigInt(preview[5]),
+    rewardPoolAmount: BigInt(preview[6])
+  };
+}
+
+async function reconcileOrders({ silent = true } = {}) {
+  if (!state.provider) return;
+
+  const orders = loadStoredOrders();
+  const pendingOrders = orders.filter((order) => order?.status === "pending" && order?.txHash);
+  if (!pendingOrders.length) return;
+
+  let changed = false;
+
+  for (const order of pendingOrders) {
+    try {
+      const receipt = await state.provider.getTransactionReceipt(order.txHash);
+      if (!receipt) continue;
+
+      order.updatedAt = new Date().toISOString();
+      order.blockNumber = receipt.blockNumber;
+      order.gasUsed = receipt.gasUsed ? receipt.gasUsed.toString() : order.gasUsed;
+      order.status = receipt.status === 1 ? "confirmed" : "failed";
+      if (receipt.status !== 1 && !order.errorMessage) {
+        order.errorMessage = "交易已上链，但执行失败或被回滚。";
+        order.errorType = "receipt_failed";
+      }
+      changed = true;
+    } catch (error) {
+      console.warn("订单链上对账失败:", order.txHash, error);
+    }
+  }
+
+  if (!changed) return;
+
+  saveStoredOrders(orders);
+  renderOrders();
+
+  if (!silent) {
+    const confirmed = orders.filter((order) => order.status === "confirmed").length;
+    const pending = orders.filter((order) => order.status === "pending").length;
+    setStatus(`订单状态已完成链上对账。已确认 ${confirmed} 笔，待确认 ${pending} 笔。`, "ok");
+  }
+}
+
 async function refreshPreview() {
   try {
     if (!getSelectedProduct()) {
@@ -1435,17 +1500,13 @@ async function refreshPreview() {
       return;
     }
 
-    // 计算分配
-    const directAmount = usdtAmount * 1000n / 10000n;
-    const indirectAmount = usdtAmount * 500n / 10000n;
-    const feeAmount = usdtAmount * 500n / 10000n;
-    const productCostAmount = usdtAmount * state.productCostBps / 10000n;
-    const rewardPoolAmount = usdtAmount - directAmount - indirectAmount - feeAmount - productCostAmount;
+    const split = await getSplitPreview(usdtAmount);
+    state.lastSplitPreview = split;
 
     // 获取预估奖励
     let previewReward = 0n;
     try {
-      previewReward = await state.rewarder.previewReward(rewardPoolAmount);
+      previewReward = await state.rewarder.previewReward(split.rewardPoolAmount);
     } catch (e) {
       console.warn("预览奖励失败:", e);
     }
@@ -1455,11 +1516,11 @@ async function refreshPreview() {
     state.lastPreviewReward = previewReward;
 
     // 更新 UI
-    ui.directAmount.textContent = formatUnits(directAmount, state.usdtDecimals) + " " + state.usdtSymbol;
-    ui.indirectAmount.textContent = formatUnits(indirectAmount, state.usdtDecimals) + " " + state.usdtSymbol;
-    ui.feeAmount.textContent = formatUnits(feeAmount, state.usdtDecimals) + " " + state.usdtSymbol;
-    ui.costAmount.textContent = formatUnits(productCostAmount, state.usdtDecimals) + " " + state.usdtSymbol;
-    ui.rewardPoolAmount.textContent = formatUnits(rewardPoolAmount, state.usdtDecimals) + " " + state.usdtSymbol;
+    ui.directAmount.textContent = formatUnits(split.directAmount, state.usdtDecimals) + " " + state.usdtSymbol;
+    ui.indirectAmount.textContent = formatUnits(split.indirectAmount, state.usdtDecimals) + " " + state.usdtSymbol;
+    ui.feeAmount.textContent = formatUnits(split.feeAmount, state.usdtDecimals) + " " + state.usdtSymbol;
+    ui.costAmount.textContent = formatUnits(split.productCostAmount, state.usdtDecimals) + " " + state.usdtSymbol;
+    ui.rewardPoolAmount.textContent = formatUnits(split.rewardPoolAmount, state.usdtDecimals) + " " + state.usdtSymbol;
     ui.estimatedReward.textContent = formatUnits(previewReward, state.assetDecimals) + " " + state.assetSymbol;
     ui.minimumReward.textContent = formatUnits(minimumReward, state.assetDecimals) + " " + state.assetSymbol;
 
@@ -1491,6 +1552,7 @@ async function refreshPreview() {
     setStatus("报价已刷新。\n" + note, "ok");
   } catch (error) {
     console.error(error);
+    resetPreview();
     setStatus("刷新报价失败: " + extractError(error), "error");
   }
 }
@@ -1538,6 +1600,7 @@ function resetPreview() {
   ui.estimatedReward.textContent = "-";
   ui.minimumReward.textContent = "-";
   state.lastPreviewReward = 0n;
+  state.lastSplitPreview = null;
 }
 
 async function approveUsdt() {
@@ -1562,7 +1625,14 @@ async function approveUsdt() {
 
 async function buyNow() {
   let pendingOrder = null;
+  let orderPersisted = false;
   try {
+    if (state.isSubmitting) {
+      setStatus("上一笔购买仍在处理中，请等待钱包确认或链上回执。", "warn");
+      return;
+    }
+
+    setBuyPending(true);
     ensureConnected();
     await ensureBsc();
 
@@ -1576,19 +1646,19 @@ async function buyNow() {
       throw new Error("请输入有效的 USDT 金额。");
     }
 
+    const usdtAmount = parseAmount(rawAmount, state.usdtDecimals);
+    const expectedProductAmount = parseAmount(String(selectedProduct.price), state.usdtDecimals);
+    if (usdtAmount !== expectedProductAmount) {
+      throw new Error(`商品价格校验失败。当前商品定价为 ${selectedProduct.price} ${state.usdtSymbol}，请重新选择商品后再购买。`);
+    }
+
     const customer = validateCustomerInfo();
     await refreshPreview();
 
-    const usdtAmount = parseAmount(rawAmount, state.usdtDecimals);
     const referrer = getActiveReferrer();
+    const split = await getSplitPreview(usdtAmount);
+    state.lastSplitPreview = split;
     const minAssetAmount = computeMinimumReward(state.lastPreviewReward);
-
-    // 计算分配
-    const directAmount = usdtAmount * 1000n / 10000n;
-    const indirectAmount = usdtAmount * 500n / 10000n;
-    const feeAmount = usdtAmount * 500n / 10000n;
-    const productCostAmount = usdtAmount * state.productCostBps / 10000n;
-    const rewardPoolAmount = usdtAmount - directAmount - indirectAmount - feeAmount - productCostAmount;
 
     // 详细前置检查
     setStatus("正在检查购买条件...", "warn");
@@ -1802,12 +1872,22 @@ async function buyNow() {
       productPrice: selectedProduct.price,
       referrer,
       usdtAmount: usdtAmount.toString(),
-      rewardPoolAmount: rewardPoolAmount.toString(),
+      rewardPoolAmount: split.rewardPoolAmount.toString(),
+      directAmount: split.directAmount.toString(),
+      indirectAmount: split.indirectAmount.toString(),
+      feeAmount: split.feeAmount.toString(),
+      productCostAmount: split.productCostAmount.toString(),
       assetAmount: state.lastPreviewReward.toString(),
       minAssetAmount: minAssetAmount.toString(),
       txHash: tx.hash
     };
-    upsertOrder(pendingOrder);
+    try {
+      upsertOrder(pendingOrder);
+      orderPersisted = true;
+    } catch (storageError) {
+      pendingOrder = null;
+      throw new Error(`购买交易已发送，交易哈希: ${tx.hash}\n但本地订单保存失败: ${storageError.message}`);
+    }
 
     setStatus("购买交易已发送: " + shortAddress(tx.hash) + "\n等待确认...", "warn");
     const receipt = await tx.wait();
@@ -1817,12 +1897,14 @@ async function buyNow() {
       throw new Error("交易执行失败（被回滚），请检查合约状态或联系管理员。");
     }
 
-    updateOrder(pendingOrder.id, {
-      status: "confirmed",
-      updatedAt: new Date().toISOString(),
-      blockNumber: receipt.blockNumber,
-      gasUsed: receipt.gasUsed.toString()
-    });
+    if (orderPersisted) {
+      updateOrder(pendingOrder.id, {
+        status: "confirmed",
+        updatedAt: new Date().toISOString(),
+        blockNumber: receipt.blockNumber,
+        gasUsed: receipt.gasUsed.toString()
+      });
+    }
 
     await refreshWalletMetrics();
     await refreshPreview();
@@ -1841,15 +1923,21 @@ async function buyNow() {
     console.log("错误分析:", analysis);
     console.log("原始错误:", error);
 
-    if (pendingOrder) {
-      updateOrder(pendingOrder.id, {
-        status: "failed",
-        updatedAt: new Date().toISOString(),
-        errorMessage: analysis.message,
-        errorType: analysis.type
-      });
+    if (pendingOrder && orderPersisted) {
+      try {
+        updateOrder(pendingOrder.id, {
+          status: "failed",
+          updatedAt: new Date().toISOString(),
+          errorMessage: analysis.message,
+          errorType: analysis.type
+        });
+      } catch (storageError) {
+        console.error("写入失败订单状态时出错:", storageError);
+      }
     }
     setStatus(errorMsg, "error");
+  } finally {
+    setBuyPending(false);
   }
 }
 
@@ -1881,15 +1969,18 @@ async function ensureBsc() {
 
 async function handleAccountsChanged(accounts) {
   if (!accounts.length) {
+    bindWalletProviderEvents(null);
     state.signer = null;
     state.account = null;
     state.chainId = null;
     state.isAdmin = false;
     state.lastWalletType = null;
+    state.lastSplitPreview = null;
     ui.walletAddress.textContent = "未连接";
     ui.networkName.textContent = "已断开";
     ui.boundReferrer.textContent = "-";
     updateWalletButtonState();
+    setBuyPending(false);
     await refreshWalletMetrics();
     resetPreview();
     renderAdminProducts();
@@ -1925,7 +2016,7 @@ function initUI() {
     "statusBox", "orderStatusBox", "walletAddress", "networkName", "boundReferrer",
     "directAmount", "indirectAmount", "feeAmount", "costAmount", "rewardPoolAmount",
     "estimatedReward", "minimumReward", "usdtBalance", "usdtAllowance",
-    "productCostBps", "rewardBps", "usdtTokenAddress", "assetTokenAddress", "assetSourceWallet",
+    "productCostBps", "rewardBps", "usdtTokenAddress", "assetTokenAddress", "assetSourceWallet", "rewarderRevenueShare", "rewarderOracle",
     "ordersVisibleCount", "ordersConfirmedCount", "ordersUsdtTotal", "adminStatus",
     "orderSearchInput", "orderStatusFilter", "refreshOrdersBtn",
     "exportVisibleCsvBtn", "exportVisibleJsonBtn", "exportAllCsvBtn", "exportAllJsonBtn", "ordersTableBody",
@@ -1955,11 +2046,7 @@ async function init() {
     // 加载合约
     await loadContracts();
 
-    // 监听钱包事件
-    if (window.ethereum) {
-      window.ethereum.on("accountsChanged", handleAccountsChanged);
-      window.ethereum.on("chainChanged", handleChainChanged);
-    } else if (isFileProtocol()) {
+    if (!window.ethereum && isFileProtocol()) {
       initStatusMessage = "当前页面是 file:// 本地文件模式。若钱包未注入，请改用本地 HTTP 服务打开，或在钱包扩展里允许访问文件网址。";
       initStatusType = "warn";
     }
@@ -1968,7 +2055,10 @@ async function init() {
     ui.previewBtn.addEventListener("click", refreshPreview);
     ui.approveBtn.addEventListener("click", approveUsdt);
     ui.buyBtn.addEventListener("click", buyNow);
-    ui.refreshOrdersBtn.addEventListener("click", renderOrders);
+    ui.refreshOrdersBtn.addEventListener("click", async () => {
+      await reconcileOrders({ silent: false });
+      renderOrders();
+    });
     ui.exportVisibleCsvBtn.addEventListener("click", () => exportOrders("csv", "visible"));
     ui.exportVisibleJsonBtn.addEventListener("click", () => exportOrders("json", "visible"));
     ui.exportAllCsvBtn.addEventListener("click", () => exportOrders("csv", "all"));
@@ -1978,38 +2068,6 @@ async function init() {
     ui.connectBtn.addEventListener("click", connectWallet);
     ui.switchBtn.addEventListener("click", switchToBsc);
     ui.copyRefLinkBtn.addEventListener("click", copyReferralLink);
-
-    // 管理员管理事件
-    const addAdminBtn = document.getElementById("addAdminBtn");
-    const newAdminInput = document.getElementById("newAdminAddressInput");
-    const adminStatusEl = document.getElementById("adminManageStatus");
-
-    if (addAdminBtn && newAdminInput) {
-      addAdminBtn.addEventListener("click", () => {
-        try {
-          const address = newAdminInput.value.trim();
-          if (!address) {
-            if (adminStatusEl) {
-              adminStatusEl.textContent = "请输入钱包地址";
-              adminStatusEl.className = "status error";
-            }
-            return;
-          }
-          addAdmin(address);
-          newAdminInput.value = "";
-          renderAdminList();
-          if (adminStatusEl) {
-            adminStatusEl.textContent = "管理员添加成功！";
-            adminStatusEl.className = "status ok";
-          }
-        } catch (error) {
-          if (adminStatusEl) {
-            adminStatusEl.textContent = "添加失败: " + error.message;
-            adminStatusEl.className = "status error";
-          }
-        }
-      });
-    }
 
     // 钱包模态框事件
     ui.closeWalletModal.addEventListener("click", hideWalletModal);
@@ -2039,6 +2097,7 @@ async function init() {
     ui.networkName.textContent = CONFIG.chainName;
     renderProducts();
     renderAdminProducts();
+    await reconcileOrders();
     renderOrders();
     setStatus(initStatusMessage, initStatusType);
   } catch (error) {
