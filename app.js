@@ -40,6 +40,8 @@ const REVENUE_SHARE_ABI = [
 const REWARDER_ABI = [
   "function assetToken() view returns (address)",
   "function assetSourceWallet() view returns (address)",
+  "function revenueShareContract() view returns (address)",
+  "function assetOracle() view returns (address)",
   "function previewReward(uint256 rewardUsdtAmount) view returns (uint256)"
 ];
 
@@ -291,6 +293,12 @@ function analyzeError(error) {
   } else if (msg.includes("asset amount below minimum")) {
     analysis.type = "slippage";
     analysis.suggestion = "滑点保护触发：实际奖励低于最低预期，请增加滑点容忍度或减少购买金额";
+  } else if (msg.includes("unauthorized caller")) {
+    analysis.type = "rewarder_config";
+    analysis.suggestion = "奖励金库未绑定当前 RevenueShare 合约，请管理员检查 Rewarder 的 revenueShareContract 配置";
+  } else if (msg.includes("奖励池授权不足")) {
+    analysis.type = "asset_allowance";
+    analysis.suggestion = "请管理员使用资产钱包，对 Rewarder 合约执行足额 approve 授权";
   } else if (msg.includes("execution reverted")) {
     analysis.type = "revert";
     analysis.suggestion = "合约执行被回滚，请检查参数是否正确";
@@ -1134,19 +1142,40 @@ async function loadContracts() {
   ui.productCostBps.textContent = formatPercentFromBps(productCostBps);
   ui.rewardBps.textContent = formatPercentFromBps(rewardBps);
 
-  // 获取并显示奖励池余额
+  // 获取并显示奖励池余额和授权
   try {
     const assetBalance = await state.asset.balanceOf(assetSourceWallet);
     const assetSourceBalanceEl = document.getElementById("assetSourceBalance");
     if (assetSourceBalanceEl) {
       assetSourceBalanceEl.textContent = formatUnits(assetBalance, state.assetDecimals) + " " + state.assetSymbol;
     }
-  } catch (e) {
-    console.warn("无法获取奖励池余额:", e);
-    const assetSourceBalanceEl = document.getElementById("assetSourceBalance");
-    if (assetSourceBalanceEl) {
-      assetSourceBalanceEl.textContent = "无法读取";
+
+    // 检查奖励池对 Rewarder 合约的授权
+    const assetAllowance = await state.asset.allowance(assetSourceWallet, CONFIG.rewarder);
+    const assetSourceAllowanceEl = document.getElementById("assetSourceAllowance");
+    if (assetSourceAllowanceEl) {
+      assetSourceAllowanceEl.textContent = formatUnits(assetAllowance, state.assetDecimals) + " " + state.assetSymbol;
     }
+
+    console.log("奖励池信息:");
+    console.log("- AssetSourceWallet:", assetSourceWallet);
+    console.log("- 余额:", formatUnits(assetBalance, state.assetDecimals), state.assetSymbol);
+    console.log("- 对 Rewarder 合约授权:", formatUnits(assetAllowance, state.assetDecimals), state.assetSymbol);
+
+    // 如果授权为0，显示警告
+    if (assetAllowance === 0n) {
+      console.warn("警告: 奖励池未授权 Rewarder 合约使用 AssetToken!");
+      if (assetSourceAllowanceEl) {
+        assetSourceAllowanceEl.textContent += " (未授权!)";
+        assetSourceAllowanceEl.style.color = "#ff6f91";
+      }
+    }
+  } catch (e) {
+    console.warn("无法获取奖励池信息:", e);
+    const assetSourceBalanceEl = document.getElementById("assetSourceBalance");
+    const assetSourceAllowanceEl = document.getElementById("assetSourceAllowance");
+    if (assetSourceBalanceEl) assetSourceBalanceEl.textContent = "无法读取";
+    if (assetSourceAllowanceEl) assetSourceAllowanceEl.textContent = "无法读取";
   }
 
   renderProducts();
@@ -1575,6 +1604,31 @@ async function buyNow() {
       throw new Error("奖励合约未正确初始化，请刷新页面重试。");
     }
 
+    // 3.1 检查奖励金库配置是否与前端目标合约一致
+    try {
+      const [configuredRevenueShare, configuredOracle] = await Promise.all([
+        state.rewarder.revenueShareContract(),
+        state.rewarder.assetOracle()
+      ]);
+
+      if (configuredRevenueShare.toLowerCase() !== CONFIG.revenueShare.toLowerCase()) {
+        throw new Error(
+          `奖励金库配置错误：当前绑定的 RevenueShare 为 ${configuredRevenueShare}，前端目标为 ${CONFIG.revenueShare}。请管理员调用 setRevenueShareContract 修正。`
+        );
+      }
+
+      if (configuredOracle.toLowerCase() !== CONFIG.oracle.toLowerCase()) {
+        throw new Error(
+          `奖励金库配置错误：当前绑定的 Oracle 为 ${configuredOracle}，前端目标为 ${CONFIG.oracle}。请管理员调用 setAssetOracle 修正。`
+        );
+      }
+    } catch (rewarderConfigError) {
+      if (rewarderConfigError.message.includes("奖励金库配置错误")) {
+        throw rewarderConfigError;
+      }
+      console.warn("无法完整读取奖励金库配置:", rewarderConfigError);
+    }
+
     // 4. 检查预估奖励
     if (state.lastPreviewReward === 0n) {
       throw new Error("无法获取奖励预估，请检查网络连接或稍后重试。");
@@ -1586,20 +1640,28 @@ async function buyNow() {
       throw new Error("BNB 余额为 0，无法支付交易手续费。请先充值 BNB。");
     }
 
-    // 6. 检查 AssetSourceWallet 是否有足够的 AssetToken 余额来支付奖励
+    // 6. 检查 AssetSourceWallet 是否有足够的 AssetToken 余额和授权来支付奖励
     try {
       const assetSourceWallet = await state.rewarder.assetSourceWallet();
-      const assetBalance = await state.asset.balanceOf(assetSourceWallet);
+      const [assetBalance, assetAllowanceToRewarder] = await Promise.all([
+        state.asset.balanceOf(assetSourceWallet),
+        state.asset.allowance(assetSourceWallet, CONFIG.rewarder)
+      ]);
       console.log("AssetSourceWallet 信息:");
       console.log("- 地址:", assetSourceWallet);
       console.log("- AssetToken 余额:", formatUnits(assetBalance, state.assetDecimals), state.assetSymbol);
+      console.log("- 对 Rewarder 授权:", formatUnits(assetAllowanceToRewarder, state.assetDecimals), state.assetSymbol);
       console.log("- 预估奖励:", formatUnits(state.lastPreviewReward, state.assetDecimals), state.assetSymbol);
 
       if (assetBalance < state.lastPreviewReward) {
         throw new Error(`奖励池余额不足！\nAssetSourceWallet (${shortAddress(assetSourceWallet)}) 的 ${state.assetSymbol} 余额: ${formatUnits(assetBalance, state.assetDecimals)}\n预估奖励: ${formatUnits(state.lastPreviewReward, state.assetDecimals)}\n\n请联系管理员充值奖励池。`);
       }
+
+      if (assetAllowanceToRewarder < state.lastPreviewReward) {
+        throw new Error(`奖励池授权不足！\nAssetSourceWallet (${shortAddress(assetSourceWallet)}) 对 Rewarder (${shortAddress(CONFIG.rewarder)}) 的 ${state.assetSymbol} 授权额度: ${formatUnits(assetAllowanceToRewarder, state.assetDecimals)}\n预估奖励: ${formatUnits(state.lastPreviewReward, state.assetDecimals)}\n\n请管理员用资产钱包先对 Rewarder 合约执行 approve。`);
+      }
     } catch (e) {
-      if (e.message.includes("奖励池余额不足")) throw e;
+      if (e.message.includes("奖励池余额不足") || e.message.includes("奖励池授权不足")) throw e;
       console.warn("无法检查 AssetSourceWallet 余额:", e);
     }
 
@@ -1622,7 +1684,7 @@ async function buyNow() {
         detailedError += "\n\npreviewSplit 调用也失败，可能是合约状态问题。";
       }
 
-      throw new Error(`交易预执行失败: ${detailedError}\n\n可能原因：\n1. 合约逻辑检查失败（如推荐人地址无效）\n2. 合约已被暂停\n3. 参数错误\n4. 奖励池余额不足`);
+      throw new Error(`交易预执行失败: ${detailedError}\n\n可能原因：\n1. 合约逻辑检查失败（如推荐人地址无效）\n2. 合约配置错误（奖励金库/Oracle 绑定不一致）\n3. 参数错误\n4. 奖励池余额不足\n5. 资产钱包未对 Rewarder 授权`);
     }
 
     // 发送购买交易
