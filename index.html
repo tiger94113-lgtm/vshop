@@ -8,17 +8,20 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛒</text></svg>" />
   <style>
     :root {
-      --bg: #07111f;
-      --panel: rgba(14, 25, 42, 0.88);
-      --panel-strong: #13233b;
-      --line: rgba(148, 163, 184, 0.2);
-      --text: #e5eef9;
-      --muted: #8da3bf;
-      --accent: #33d6a6;
-      --accent-2: #4a8bff;
+      --bg: #06101c;
+      --panel: rgba(11, 23, 39, 0.82);
+      --panel-strong: rgba(20, 36, 59, 0.92);
+      --panel-soft: rgba(17, 32, 52, 0.58);
+      --line: rgba(148, 163, 184, 0.16);
+      --text: #edf5ff;
+      --muted: #97abc4;
+      --accent: #4df0bc;
+      --accent-2: #69a1ff;
+      --accent-3: #7a7cff;
       --warn: #ffcc66;
       --danger: #ff6f91;
-      --shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+      --shadow: 0 30px 80px rgba(0, 0, 0, 0.35);
+      --shadow-soft: 0 16px 40px rgba(0, 0, 0, 0.22);
     }
 
     * { box-sizing: border-box; }
@@ -29,22 +32,51 @@
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
       color: var(--text);
       background:
-        radial-gradient(circle at top left, rgba(74, 139, 255, 0.22), transparent 35%),
-        radial-gradient(circle at top right, rgba(51, 214, 166, 0.16), transparent 30%),
-        linear-gradient(180deg, #06111d 0%, #081420 48%, #091726 100%);
+        radial-gradient(circle at top left, rgba(105, 161, 255, 0.24), transparent 32%),
+        radial-gradient(circle at top right, rgba(77, 240, 188, 0.18), transparent 28%),
+        radial-gradient(circle at 30% 80%, rgba(122, 124, 255, 0.12), transparent 30%),
+        linear-gradient(180deg, #06101c 0%, #081320 44%, #091724 100%);
+      overflow-x: hidden;
+    }
+
+    body::before,
+    body::after {
+      content: "";
+      position: fixed;
+      inset: auto;
+      z-index: -1;
+      pointer-events: none;
+      filter: blur(70px);
+      opacity: 0.5;
+    }
+
+    body::before {
+      top: 80px;
+      left: -40px;
+      width: 260px;
+      height: 260px;
+      background: rgba(105, 161, 255, 0.25);
+    }
+
+    body::after {
+      right: -60px;
+      bottom: 90px;
+      width: 300px;
+      height: 300px;
+      background: rgba(77, 240, 188, 0.16);
     }
 
     a { color: inherit; text-decoration: none; }
 
     .page {
-      width: min(1180px, calc(100% - 32px));
+      width: min(1240px, calc(100% - 32px));
       margin: 0 auto;
-      padding: 32px 0 48px;
+      padding: 28px 0 60px;
     }
 
     .hero, .card {
       border: 1px solid var(--line);
-      border-radius: 24px;
+      border-radius: 28px;
       background: var(--panel);
       box-shadow: var(--shadow);
       backdrop-filter: blur(12px);
@@ -52,43 +84,118 @@
 
     .hero {
       display: grid;
-      grid-template-columns: 1.2fr 0.8fr;
-      gap: 24px;
-      padding: 28px;
-      margin-bottom: 24px;
+      grid-template-columns: 1.25fr 0.75fr;
+      gap: 28px;
+      padding: 34px;
+      margin-bottom: 26px;
+      position: relative;
+      overflow: hidden;
+      background:
+        linear-gradient(135deg, rgba(105, 161, 255, 0.12), transparent 35%),
+        linear-gradient(225deg, rgba(77, 240, 188, 0.09), transparent 30%),
+        var(--panel);
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      right: -120px;
+      top: -120px;
+      width: 280px;
+      height: 280px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(77, 240, 188, 0.16), transparent 70%);
+      pointer-events: none;
     }
 
     .hero h1 {
       margin: 0 0 12px;
-      font-size: clamp(28px, 4vw, 48px);
-      line-height: 1.1;
+      font-size: clamp(34px, 5vw, 58px);
+      line-height: 1.04;
+      letter-spacing: -0.03em;
     }
 
     .hero p {
       margin: 0;
-      max-width: 720px;
+      max-width: 680px;
       line-height: 1.65;
       color: var(--muted);
+      font-size: 15px;
     }
 
     .hero-actions {
       display: flex;
       flex-wrap: wrap;
       gap: 12px;
+      margin-top: 26px;
+    }
+
+    .hero-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 18px 0 0;
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-radius: 999px;
+      background: rgba(148, 163, 184, 0.08);
+      border: 1px solid rgba(148, 163, 184, 0.12);
+      color: #d7e6f6;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .hero-stat-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
       margin-top: 22px;
+    }
+
+    .hero-stat {
+      padding: 16px;
+      border-radius: 20px;
+      background: rgba(11, 23, 39, 0.56);
+      border: 1px solid rgba(148, 163, 184, 0.1);
+      box-shadow: var(--shadow-soft);
+    }
+
+    .hero-stat strong {
+      display: block;
+      margin-top: 10px;
+      font-size: 18px;
+      color: #f7fbff;
     }
 
     .hero-side {
       display: grid;
-      gap: 12px;
+      gap: 14px;
       align-content: start;
+      position: relative;
+      z-index: 1;
     }
 
     .hero-side .mini {
-      padding: 16px;
-      border-radius: 18px;
-      background: rgba(19, 35, 59, 0.7);
-      border: 1px solid var(--line);
+      padding: 18px;
+      border-radius: 22px;
+      background: linear-gradient(180deg, rgba(22, 39, 62, 0.9), rgba(12, 24, 40, 0.9));
+      border: 1px solid rgba(148, 163, 184, 0.12);
+      box-shadow: var(--shadow-soft);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero-side .mini::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 4px;
+      background: linear-gradient(180deg, var(--accent), var(--accent-2));
     }
 
     .mini .label, .label {
@@ -103,6 +210,7 @@
       font-size: 14px;
       word-break: break-all;
       font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      color: #d7e6f6;
     }
 
     .grid {
@@ -111,11 +219,16 @@
       gap: 24px;
     }
 
-    .card { padding: 24px; }
+    .card {
+      padding: 26px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 22%),
+        var(--panel);
+    }
 
     .card h2 {
-      margin: 0 0 8px;
-      font-size: 22px;
+      margin: 0 0 10px;
+      font-size: 24px;
     }
 
     .card p.desc {
@@ -155,33 +268,36 @@
 
     button {
       border: 0;
-      border-radius: 14px;
-      padding: 14px 18px;
+      border-radius: 16px;
+      padding: 14px 20px;
       font-size: 15px;
       font-weight: 600;
       cursor: pointer;
-      transition: transform 0.15s ease, opacity 0.15s ease, box-shadow 0.15s ease;
+      transition: transform 0.18s ease, opacity 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
     }
 
-    button:hover:not(:disabled) { transform: translateY(-1px); }
+    button:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 18px 38px rgba(0, 0, 0, 0.24);
+    }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
 
     .primary {
-      background: linear-gradient(135deg, var(--accent), #5ef2c9);
+      background: linear-gradient(135deg, var(--accent), #8cf7d8);
       color: #042017;
       box-shadow: 0 16px 40px rgba(51, 214, 166, 0.24);
     }
 
     .secondary {
-      background: linear-gradient(135deg, var(--accent-2), #77a4ff);
-      color: #09121f;
+      background: linear-gradient(135deg, var(--accent-2), #8ab3ff);
+      color: #09131f;
       box-shadow: 0 16px 40px rgba(74, 139, 255, 0.22);
     }
 
     .ghost {
-      background: rgba(148, 163, 184, 0.08);
+      background: rgba(148, 163, 184, 0.07);
       color: var(--text);
-      border: 1px solid rgba(148, 163, 184, 0.14);
+      border: 1px solid rgba(148, 163, 184, 0.12);
     }
 
     .cta-row {
@@ -199,16 +315,16 @@
     }
 
     .stat {
-      padding: 16px;
-      border-radius: 18px;
-      background: rgba(19, 35, 59, 0.72);
-      border: 1px solid var(--line);
+      padding: 18px;
+      border-radius: 20px;
+      background: linear-gradient(180deg, rgba(22, 39, 62, 0.82), rgba(13, 24, 39, 0.76));
+      border: 1px solid rgba(148, 163, 184, 0.12);
     }
 
     .stat strong {
       display: block;
-      margin-top: 6px;
-      font-size: 18px;
+      margin-top: 8px;
+      font-size: 20px;
     }
 
     .list {
@@ -222,10 +338,10 @@
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      padding: 12px 14px;
-      border-radius: 14px;
-      background: rgba(19, 35, 59, 0.62);
-      border: 1px solid var(--line);
+      padding: 14px 16px;
+      border-radius: 16px;
+      background: linear-gradient(180deg, rgba(20, 36, 59, 0.72), rgba(12, 24, 40, 0.62));
+      border: 1px solid rgba(148, 163, 184, 0.1);
     }
 
     .row span:first-child { color: var(--muted); font-size: 13px; }
@@ -242,8 +358,8 @@
       margin-top: 18px;
       padding: 14px 16px;
       border-radius: 16px;
-      border: 1px solid var(--line);
-      background: rgba(148, 163, 184, 0.08);
+      border: 1px solid rgba(148, 163, 184, 0.12);
+      background: rgba(148, 163, 184, 0.06);
       color: var(--muted);
       line-height: 1.55;
       white-space: pre-wrap;
@@ -287,6 +403,278 @@
     .hidden { display: none !important; }
     .section { margin-top: 24px; }
 
+    .section-head {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    .section-head h2 {
+      margin: 0;
+    }
+
+    .section-head p {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .section-kicker {
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #bed0e5;
+      margin-bottom: 6px;
+    }
+
+    .product-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 18px;
+      margin-top: 18px;
+    }
+
+    .product-card {
+      position: relative;
+      overflow: hidden;
+      border-radius: 22px;
+      border: 1px solid rgba(148, 163, 184, 0.12);
+      background:
+        linear-gradient(180deg, rgba(20, 36, 59, 0.78), rgba(10, 20, 34, 0.88));
+      padding: 18px;
+      box-shadow: var(--shadow-soft);
+      transition: transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
+    }
+
+    .product-card:hover {
+      transform: translateY(-4px);
+      border-color: rgba(77, 240, 188, 0.28);
+      box-shadow: 0 24px 50px rgba(0, 0, 0, 0.25);
+    }
+
+    .product-card.active {
+      border-color: rgba(77, 240, 188, 0.38);
+      box-shadow: 0 24px 54px rgba(77, 240, 188, 0.12);
+    }
+
+    .product-cover {
+      height: 160px;
+      border-radius: 18px;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at top right, rgba(105, 161, 255, 0.38), transparent 38%),
+        linear-gradient(135deg, rgba(77, 240, 188, 0.14), rgba(105, 161, 255, 0.18)),
+        rgba(255, 255, 255, 0.04);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 54px;
+      color: #f3fbff;
+      margin-bottom: 16px;
+      position: relative;
+      isolation: isolate;
+    }
+
+    .product-cover img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      position: absolute;
+      inset: 0;
+      z-index: -1;
+    }
+
+    .product-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(77, 240, 188, 0.12);
+      border: 1px solid rgba(77, 240, 188, 0.16);
+      color: #baf3e3;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .product-card h3 {
+      margin: 14px 0 8px;
+      font-size: 22px;
+    }
+
+    .product-card p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.65;
+      font-size: 14px;
+      min-height: 48px;
+    }
+
+    .product-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .product-price {
+      display: grid;
+      gap: 4px;
+    }
+
+    .product-price strong {
+      font-size: 26px;
+      line-height: 1;
+      letter-spacing: -0.03em;
+    }
+
+    .product-price span {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .product-select-btn {
+      white-space: nowrap;
+    }
+
+    .selected-product {
+      margin-top: 18px;
+      padding: 18px;
+      border-radius: 20px;
+      border: 1px solid rgba(77, 240, 188, 0.18);
+      background:
+        linear-gradient(135deg, rgba(77, 240, 188, 0.08), rgba(105, 161, 255, 0.08)),
+        rgba(255, 255, 255, 0.02);
+    }
+
+    .selected-product-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .selected-product-title {
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .selected-product-desc {
+      margin-top: 10px;
+      color: var(--muted);
+      line-height: 1.65;
+      font-size: 14px;
+    }
+
+    .selected-product-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .selected-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(148, 163, 184, 0.08);
+      border: 1px solid rgba(148, 163, 184, 0.12);
+      font-size: 13px;
+      color: #d9e9f8;
+    }
+
+    .admin-panel-grid {
+      display: grid;
+      grid-template-columns: 0.95fr 1.05fr;
+      gap: 24px;
+    }
+
+    .product-admin-list {
+      display: grid;
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .product-admin-item {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 16px;
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(20, 36, 59, 0.72), rgba(12, 24, 40, 0.72));
+      border: 1px solid rgba(148, 163, 184, 0.1);
+    }
+
+    .product-admin-item h3 {
+      margin: 0;
+      font-size: 17px;
+    }
+
+    .product-admin-item p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .product-admin-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+
+    .product-admin-actions button {
+      padding: 10px 14px;
+      font-size: 13px;
+      border-radius: 12px;
+    }
+
+    .helper-text {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .amount-check {
+      margin-top: 12px;
+      padding: 12px 16px;
+      border-radius: 12px;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .amount-check.ok {
+      background: rgba(51, 214, 166, 0.1);
+      border: 1px solid rgba(51, 214, 166, 0.2);
+      color: #baf3e3;
+    }
+
+    .amount-check.error {
+      background: rgba(255, 111, 145, 0.1);
+      border: 1px solid rgba(255, 111, 145, 0.2);
+      color: #ffd3de;
+    }
+
+    .amount-check.warning {
+      background: rgba(255, 204, 102, 0.1);
+      border: 1px solid rgba(255, 204, 102, 0.2);
+      color: #ffe3a5;
+    }
+
     .admin-grid {
       display: grid;
       grid-template-columns: 0.9fr 1.1fr;
@@ -304,8 +692,8 @@
       overflow: auto;
       margin-top: 18px;
       border-radius: 18px;
-      border: 1px solid var(--line);
-      background: rgba(10, 19, 31, 0.8);
+      border: 1px solid rgba(148, 163, 184, 0.1);
+      background: rgba(10, 19, 31, 0.78);
     }
 
     table {
@@ -414,8 +802,191 @@
       cursor: pointer;
     }
 
+    /* 钱包选择模态框 */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(8px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.3s, visibility 0.3s;
+    }
+
+    .modal-overlay.active {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .modal {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      padding: 28px;
+      width: min(420px, 90vw);
+      max-height: 80vh;
+      overflow-y: auto;
+      box-shadow: var(--shadow);
+      transform: scale(0.9);
+      transition: transform 0.3s;
+    }
+
+    .modal-overlay.active .modal {
+      transform: scale(1);
+    }
+
+    .modal h3 {
+      margin: 0 0 20px;
+      font-size: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .modal-close {
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-size: 24px;
+      cursor: pointer;
+      padding: 0;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      transition: background 0.2s;
+    }
+
+    .modal-close:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--text);
+    }
+
+    .wallet-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .wallet-option {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 16px;
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(20, 36, 59, 0.72), rgba(12, 24, 40, 0.72));
+      border: 1px solid rgba(148, 163, 184, 0.1);
+      cursor: pointer;
+      transition: all 0.2s;
+      position: relative;
+    }
+
+    .wallet-option:hover {
+      background: rgba(51, 214, 166, 0.1);
+      border-color: rgba(51, 214, 166, 0.3);
+      transform: translateX(4px);
+    }
+
+    .wallet-option.disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+
+    .wallet-option.disabled:hover {
+      transform: none;
+      border-color: rgba(148, 163, 184, 0.1);
+      background: linear-gradient(180deg, rgba(20, 36, 59, 0.72), rgba(12, 24, 40, 0.72));
+    }
+
+    .wallet-option::after {
+      content: attr(data-status);
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(148, 163, 184, 0.08);
+      border: 1px solid rgba(148, 163, 184, 0.12);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .wallet-option.available::after {
+      background: rgba(77, 240, 188, 0.12);
+      color: #baf3e3;
+      border-color: rgba(77, 240, 188, 0.18);
+    }
+
+    .wallet-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .wallet-info {
+      flex: 1;
+    }
+
+    .wallet-name {
+      font-weight: 600;
+      font-size: 15px;
+    }
+
+    .wallet-desc {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    .wallet-tag {
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 6px;
+      background: rgba(51, 214, 166, 0.15);
+      color: var(--accent);
+    }
+
+    .wallet-divider {
+      text-align: center;
+      color: var(--muted);
+      font-size: 13px;
+      margin: 16px 0;
+      position: relative;
+    }
+
+    .wallet-divider::before,
+    .wallet-divider::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      width: calc(50% - 30px);
+      height: 1px;
+      background: var(--line);
+    }
+
+    .wallet-divider::before { left: 0; }
+    .wallet-divider::after { right: 0; }
+
     @media (max-width: 940px) {
-      .hero, .grid, .admin-grid, .field-grid, .stats {
+      .hero, .grid, .admin-grid, .admin-panel-grid, .field-grid, .stats, .product-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .hero-stat-grid {
         grid-template-columns: 1fr;
       }
     }
@@ -429,8 +1000,27 @@
         <div class="pill"><span class="dot"></span>BSC Mainnet</div>
         <h1>Asset Mall</h1>
         <p>
-          使用 USDT 购买资产，获得实时奖励。支持推荐奖励机制，每笔交易自动分配直接推荐奖励、间接推荐奖励、手续费和产品成本。
+          使用 USDT 购买资产，实时读取链上奖励报价，自动完成推荐分账，并同步生成订单信息，适合商城销售、代理裂变和管理员后台跟单。
         </p>
+        <div class="hero-badges">
+          <div class="hero-badge">实时奖励计算</div>
+          <div class="hero-badge">推荐分账</div>
+          <div class="hero-badge">订单管理</div>
+        </div>
+        <div class="hero-stat-grid">
+          <div class="hero-stat">
+            <span class="label">支付方式</span>
+            <strong>USDT 购买</strong>
+          </div>
+          <div class="hero-stat">
+            <span class="label">奖励模式</span>
+            <strong>链上实时发放</strong>
+          </div>
+          <div class="hero-stat">
+            <span class="label">运营支持</span>
+            <strong>订单后台管理</strong>
+          </div>
+        </div>
         <div class="hero-actions">
           <button class="secondary" id="connectBtn">连接钱包</button>
           <button class="ghost" id="switchBtn">切换到 BSC</button>
@@ -454,18 +1044,50 @@
     </section>
 
     <!-- Main Grid -->
+    <section class="section">
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <div class="section-kicker">Featured Products</div>
+            <h2>商城精选商品</h2>
+            <p>先选择商品，再进入下方购买区确认订单信息。管理员可在后台添加商品和设置价格。</p>
+          </div>
+        </div>
+        <div class="product-grid" id="productGrid">
+          <div class="muted">正在加载商品...</div>
+        </div>
+      </div>
+    </section>
+
     <section class="grid">
       <!-- Buy Card -->
       <div class="card">
         <h2>购买资产</h2>
         <p class="desc">
-          输入 USDT 金额，查看实时奖励预估，然后授权并购买。
+          请选择商品并确认订单信息，系统会自动带入管理员设置的商品价格。
         </p>
+
+        <div class="selected-product" id="selectedProductBox">
+          <div class="selected-product-head">
+            <div>
+              <div class="label">当前选择</div>
+              <div class="selected-product-title" id="selectedProductName">暂未选择商品</div>
+            </div>
+            <div class="product-tag" id="selectedProductTag">未选择</div>
+          </div>
+          <div class="selected-product-desc" id="selectedProductDesc">
+            请先在上方商品区选择一个商品，系统将自动填入价格。
+          </div>
+          <div class="selected-product-meta">
+            <div class="selected-chip">价格: <strong id="selectedProductPrice">-</strong></div>
+            <div class="selected-chip">SKU: <span id="selectedProductSku">-</span></div>
+          </div>
+        </div>
 
         <div class="field-grid">
           <label class="field">
             <span class="label">USDT 金额</span>
-            <input id="amountInput" type="number" min="0" step="0.000001" placeholder="例如: 100" />
+            <input id="amountInput" type="number" min="0" step="0.000001" placeholder="选择商品后自动填充" />
           </label>
           <label class="field">
             <span class="label">滑点容忍度 (%)</span>
@@ -520,6 +1142,12 @@
           </div>
         </div>
 
+        <!-- 金额检查提示 -->
+        <div class="amount-check" id="amountCheck" style="display: none;">
+          <span id="amountCheckIcon">⚠️</span>
+          <span id="amountCheckText"></span>
+        </div>
+
         <div class="cta-row">
           <button class="ghost" id="previewBtn">刷新报价</button>
           <button class="secondary" id="approveBtn">授权 USDT</button>
@@ -553,6 +1181,65 @@
           <div class="row"><span>USDT 代币</span><code id="usdtTokenAddress">-</code></div>
           <div class="row"><span>资产代币</span><code id="assetTokenAddress">-</code></div>
           <div class="row"><span>资产来源钱包</span><code id="assetSourceWallet">-</code></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section admin-panel-grid hidden" id="adminProductsSection">
+      <div class="card">
+        <h2>管理员商品设置</h2>
+        <p class="desc">
+          仅管理员可见。这里新增的商品会保存在当前浏览器本地，用于首页展示和购买价格填充。
+        </p>
+
+        <div class="field-grid">
+          <label class="field">
+            <span class="label">商品名称</span>
+            <input id="productNameInput" type="text" placeholder="例如: 黄金会员套餐" />
+          </label>
+          <label class="field">
+            <span class="label">商品售价 (USDT)</span>
+            <input id="productPriceInput" type="number" min="0" step="0.000001" placeholder="例如: 100" />
+          </label>
+        </div>
+
+        <div class="field-grid">
+          <label class="field">
+            <span class="label">商品标签</span>
+            <input id="productTagInput" type="text" placeholder="例如: 热卖 / 限量 / 新品" />
+          </label>
+          <label class="field">
+            <span class="label">商品封面</span>
+            <input id="productImageInput" type="text" placeholder="图片 URL 或 emoji，例如: https://... 或 🎁" />
+          </label>
+        </div>
+
+        <label class="full">
+          <span class="label">商品简介</span>
+          <textarea id="productDescriptionInput" placeholder="介绍商品亮点、交付内容、适合人群"></textarea>
+        </label>
+
+        <div class="toolbar">
+          <button class="secondary" id="saveProductBtn">保存商品</button>
+          <button class="ghost" id="resetProductBtn">新建商品</button>
+        </div>
+
+        <div class="status" id="productStatusBox">请连接管理员钱包后管理商品。</div>
+        <div class="helper-text">
+          说明: 商品数据是前端本地版，当前浏览器保存一份。若你需要多设备同步，下一步应接数据库后台。
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <div class="section-kicker">Product Manager</div>
+            <h2>商品列表</h2>
+            <p>管理员可编辑、删除或直接设为当前推荐商品。</p>
+          </div>
+        </div>
+        <div class="product-admin-list" id="productAdminList">
+          <div class="muted">暂无商品。</div>
         </div>
       </div>
     </section>
@@ -602,8 +1289,10 @@
 
         <div class="toolbar">
           <button class="ghost" id="refreshOrdersBtn">刷新订单</button>
-          <button class="ghost" id="exportCsvBtn">导出 Excel (CSV)</button>
-          <button class="ghost" id="exportJsonBtn">导出 JSON</button>
+          <button class="ghost" id="exportVisibleCsvBtn">导出当前可见 CSV</button>
+          <button class="ghost" id="exportVisibleJsonBtn">导出当前可见 JSON</button>
+          <button class="ghost hidden" id="exportAllCsvBtn">管理员导出全部 CSV</button>
+          <button class="ghost hidden" id="exportAllJsonBtn">管理员导出全部 JSON</button>
         </div>
 
         <div class="status" id="orderStatusBox">暂无订单。</div>
@@ -645,6 +1334,87 @@
     <footer style="text-align: center; padding: 40px 0 20px; color: var(--muted); font-size: 13px;">
       <p>Asset Mall &copy; 2024 | 基于 BSC 智能合约构建</p>
     </footer>
+  </div>
+
+  <!-- 钱包选择模态框 -->
+  <div class="modal-overlay" id="walletModal">
+    <div class="modal">
+      <h3>
+        选择钱包
+        <button class="modal-close" id="closeWalletModal">&times;</button>
+      </h3>
+      <div class="wallet-list">
+        <!-- 浏览器插件钱包 -->
+        <div class="wallet-option" data-wallet="metamask">
+          <div class="wallet-icon">🦊</div>
+          <div class="wallet-info">
+            <div class="wallet-name">MetaMask</div>
+            <div class="wallet-desc">最受欢迎的以太坊钱包</div>
+          </div>
+          <span class="wallet-tag">热门</span>
+        </div>
+
+        <div class="wallet-option" data-wallet="trust">
+          <div class="wallet-icon">🔵</div>
+          <div class="wallet-info">
+            <div class="wallet-name">Trust Wallet</div>
+            <div class="wallet-desc">Binance 官方钱包</div>
+          </div>
+          <span class="wallet-tag">BSC</span>
+        </div>
+
+        <div class="wallet-option" data-wallet="tokenpocket">
+          <div class="wallet-icon">👛</div>
+          <div class="wallet-info">
+            <div class="wallet-name">TokenPocket</div>
+            <div class="wallet-desc">多链钱包，支持 BSC</div>
+          </div>
+        </div>
+
+        <div class="wallet-option" data-wallet="math">
+          <div class="wallet-icon">🧮</div>
+          <div class="wallet-info">
+            <div class="wallet-name">Math Wallet</div>
+            <div class="wallet-desc">麦子钱包，多链支持</div>
+          </div>
+        </div>
+
+        <div class="wallet-option" data-wallet="binance">
+          <div class="wallet-icon">🟡</div>
+          <div class="wallet-info">
+            <div class="wallet-name">Binance Wallet</div>
+            <div class="wallet-desc">币安官方浏览器插件</div>
+          </div>
+        </div>
+
+        <div class="wallet-option" data-wallet="okx">
+          <div class="wallet-icon">🔷</div>
+          <div class="wallet-info">
+            <div class="wallet-name">OKX Wallet</div>
+            <div class="wallet-desc">OKX 官方钱包</div>
+          </div>
+        </div>
+
+        <div class="wallet-divider">或其他方式</div>
+
+        <!-- 通用方式 -->
+        <div class="wallet-option" data-wallet="walletconnect">
+          <div class="wallet-icon">🔗</div>
+          <div class="wallet-info">
+            <div class="wallet-name">WalletConnect</div>
+            <div class="wallet-desc">扫码连接手机钱包</div>
+          </div>
+        </div>
+
+        <div class="wallet-option" data-wallet="injected">
+          <div class="wallet-icon">🌐</div>
+          <div class="wallet-info">
+            <div class="wallet-name">其他钱包</div>
+            <div class="wallet-desc">检测浏览器中的其他钱包</div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Ethers.js -->
