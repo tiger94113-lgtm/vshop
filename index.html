@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Asset Mall - USDT 收益分享平台</title>
+  <meta name="description" content="使用 USDT 购买资产，获得实时奖励。支持推荐奖励机制。" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛒</text></svg>" />
+  <style>
+    :root {
+      --bg: #07111f;
+      --panel: rgba(14, 25, 42, 0.88);
+      --panel-strong: #13233b;
+      --line: rgba(148, 163, 184, 0.2);
+      --text: #e5eef9;
+      --muted: #8da3bf;
+      --accent: #33d6a6;
+      --accent-2: #4a8bff;
+      --warn: #ffcc66;
+      --danger: #ff6f91;
+      --shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(74, 139, 255, 0.22), transparent 35%),
+        radial-gradient(circle at top right, rgba(51, 214, 166, 0.16), transparent 30%),
+        linear-gradient(180deg, #06111d 0%, #081420 48%, #091726 100%);
+    }
+
+    a { color: inherit; text-decoration: none; }
+
+    .page {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 32px 0 48px;
+    }
+
+    .hero, .card {
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(12px);
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 24px;
+      padding: 28px;
+      margin-bottom: 24px;
+    }
+
+    .hero h1 {
+      margin: 0 0 12px;
+      font-size: clamp(28px, 4vw, 48px);
+      line-height: 1.1;
+    }
+
+    .hero p {
+      margin: 0;
+      max-width: 720px;
+      line-height: 1.65;
+      color: var(--muted);
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 22px;
+    }
+
+    .hero-side {
+      display: grid;
+      gap: 12px;
+      align-content: start;
+    }
+
+    .hero-side .mini {
+      padding: 16px;
+      border-radius: 18px;
+      background: rgba(19, 35, 59, 0.7);
+      border: 1px solid var(--line);
+    }
+
+    .mini .label, .label {
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .mini .value, .value {
+      margin-top: 8px;
+      font-size: 14px;
+      word-break: break-all;
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 24px;
+    }
+
+    .card { padding: 24px; }
+
+    .card h2 {
+      margin: 0 0 8px;
+      font-size: 22px;
+    }
+
+    .card p.desc {
+      margin: 0 0 20px;
+      color: var(--muted);
+      line-height: 1.6;
+      font-size: 14px;
+    }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .field, .full { display: grid; gap: 8px; }
+    .full { margin-top: 16px; }
+
+    input, textarea, select {
+      width: 100%;
+      padding: 14px 16px;
+      border: 1px solid rgba(148, 163, 184, 0.24);
+      border-radius: 14px;
+      background: rgba(5, 14, 24, 0.85);
+      color: var(--text);
+      outline: none;
+      font-size: 15px;
+      font-family: inherit;
+    }
+
+    textarea { min-height: 80px; resize: vertical; }
+
+    input:focus, textarea:focus, select:focus {
+      border-color: rgba(74, 139, 255, 0.8);
+      box-shadow: 0 0 0 4px rgba(74, 139, 255, 0.15);
+    }
+
+    button {
+      border: 0;
+      border-radius: 14px;
+      padding: 14px 18px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.15s ease, opacity 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    button:hover:not(:disabled) { transform: translateY(-1px); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .primary {
+      background: linear-gradient(135deg, var(--accent), #5ef2c9);
+      color: #042017;
+      box-shadow: 0 16px 40px rgba(51, 214, 166, 0.24);
+    }
+
+    .secondary {
+      background: linear-gradient(135deg, var(--accent-2), #77a4ff);
+      color: #09121f;
+      box-shadow: 0 16px 40px rgba(74, 139, 255, 0.22);
+    }
+
+    .ghost {
+      background: rgba(148, 163, 184, 0.08);
+      color: var(--text);
+      border: 1px solid rgba(148, 163, 184, 0.14);
+    }
+
+    .cta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 20px;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 16px;
+    }
+
+    .stat {
+      padding: 16px;
+      border-radius: 18px;
+      background: rgba(19, 35, 59, 0.72);
+      border: 1px solid var(--line);
+    }
+
+    .stat strong {
+      display: block;
+      margin-top: 6px;
+      font-size: 18px;
+    }
+
+    .list {
+      display: grid;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      border-radius: 14px;
+      background: rgba(19, 35, 59, 0.62);
+      border: 1px solid var(--line);
+    }
+
+    .row span:first-child { color: var(--muted); font-size: 13px; }
+    .row code {
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 12px;
+      color: #b2c8e2;
+      word-break: break-all;
+    }
+    .row strong { font-size: 14px; }
+
+    .status {
+      min-height: 52px;
+      margin-top: 18px;
+      padding: 14px 16px;
+      border-radius: 16px;
+      border: 1px solid var(--line);
+      background: rgba(148, 163, 184, 0.08);
+      color: var(--muted);
+      line-height: 1.55;
+      white-space: pre-wrap;
+      font-size: 14px;
+    }
+
+    .status.ok {
+      border-color: rgba(51, 214, 166, 0.25);
+      color: #baf3e3;
+      background: rgba(51, 214, 166, 0.08);
+    }
+
+    .status.warn {
+      border-color: rgba(255, 204, 102, 0.28);
+      color: #ffe3a5;
+      background: rgba(255, 204, 102, 0.08);
+    }
+
+    .status.error {
+      border-color: rgba(255, 111, 145, 0.28);
+      color: #ffd3de;
+      background: rgba(255, 111, 145, 0.08);
+    }
+
+    .footer-note {
+      margin-top: 12px;
+      color: var(--muted);
+      line-height: 1.6;
+      font-size: 13px;
+    }
+
+    .subsection-title {
+      margin: 20px 0 12px;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #c4d5e7;
+    }
+
+    .hidden { display: none !important; }
+    .section { margin-top: 24px; }
+
+    .admin-grid {
+      display: grid;
+      grid-template-columns: 0.9fr 1.1fr;
+      gap: 24px;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .table-wrap {
+      overflow: auto;
+      margin-top: 18px;
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      background: rgba(10, 19, 31, 0.8);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 800px;
+    }
+
+    th, td {
+      padding: 12px 14px;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+      text-align: left;
+      vertical-align: top;
+      font-size: 13px;
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      background: #102033;
+      color: #d5e5f5;
+      z-index: 1;
+    }
+
+    td { color: #d4e4f4; }
+    td small {
+      display: block;
+      margin-top: 4px;
+      color: var(--muted);
+      line-height: 1.5;
+      font-size: 12px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      background: rgba(148, 163, 184, 0.08);
+      color: #d5e5f5;
+    }
+
+    .badge.pending {
+      background: rgba(255, 204, 102, 0.1);
+      color: #ffe3a5;
+      border-color: rgba(255, 204, 102, 0.24);
+    }
+
+    .badge.confirmed {
+      background: rgba(51, 214, 166, 0.1);
+      color: #baf3e3;
+      border-color: rgba(51, 214, 166, 0.24);
+    }
+
+    .badge.failed {
+      background: rgba(255, 111, 145, 0.1);
+      color: #ffd3de;
+      border-color: rgba(255, 111, 145, 0.24);
+    }
+
+    .muted { color: var(--muted); }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(51, 214, 166, 0.12);
+      border: 1px solid rgba(51, 214, 166, 0.2);
+      color: #baf3e3;
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 12px;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+      opacity: 0.9;
+    }
+
+    .loading {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-radius: 50%;
+      border-top-color: var(--accent);
+      animation: spin 1s ease-in-out infinite;
+      margin-left: 8px;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .tx-link {
+      color: var(--accent-2);
+      text-decoration: underline;
+      cursor: pointer;
+    }
+
+    @media (max-width: 940px) {
+      .hero, .grid, .admin-grid, .field-grid, .stats {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <!-- Hero Section -->
+    <section class="hero">
+      <div>
+        <div class="pill"><span class="dot"></span>BSC Mainnet</div>
+        <h1>Asset Mall</h1>
+        <p>
+          使用 USDT 购买资产，获得实时奖励。支持推荐奖励机制，每笔交易自动分配直接推荐奖励、间接推荐奖励、手续费和产品成本。
+        </p>
+        <div class="hero-actions">
+          <button class="secondary" id="connectBtn">连接钱包</button>
+          <button class="ghost" id="switchBtn">切换到 BSC</button>
+          <button class="ghost" id="copyRefLinkBtn">复制推荐链接</button>
+        </div>
+      </div>
+      <div class="hero-side">
+        <div class="mini">
+          <div class="label">收益分享合约</div>
+          <div class="value" id="revenueShareAddress">-</div>
+        </div>
+        <div class="mini">
+          <div class="label">奖励金库</div>
+          <div class="value" id="rewarderAddress">-</div>
+        </div>
+        <div class="mini">
+          <div class="label">价格预言机</div>
+          <div class="value" id="oracleAddress">-</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Main Grid -->
+    <section class="grid">
+      <!-- Buy Card -->
+      <div class="card">
+        <h2>购买资产</h2>
+        <p class="desc">
+          输入 USDT 金额，查看实时奖励预估，然后授权并购买。
+        </p>
+
+        <div class="field-grid">
+          <label class="field">
+            <span class="label">USDT 金额</span>
+            <input id="amountInput" type="number" min="0" step="0.000001" placeholder="例如: 100" />
+          </label>
+          <label class="field">
+            <span class="label">滑点容忍度 (%)</span>
+            <input id="slippageInput" type="number" min="0" max="50" step="0.1" value="1" />
+          </label>
+        </div>
+
+        <label class="full">
+          <span class="label">推荐人地址</span>
+          <input id="referrerInput" type="text" placeholder="0x..." />
+        </label>
+
+        <div class="subsection-title">订单信息</div>
+
+        <div class="field-grid">
+          <label class="field">
+            <span class="label">姓名</span>
+            <input id="customerNameInput" type="text" placeholder="您的姓名" />
+          </label>
+          <label class="field">
+            <span class="label">电话</span>
+            <input id="customerPhoneInput" type="text" placeholder="电话 / WhatsApp / Telegram" />
+          </label>
+        </div>
+
+        <label class="full">
+          <span class="label">联系地址</span>
+          <textarea id="customerAddressInput" placeholder="详细地址、城市、国家"></textarea>
+        </label>
+
+        <label class="full">
+          <span class="label">订单备注</span>
+          <textarea id="customerNoteInput" placeholder="可选备注信息"></textarea>
+        </label>
+
+        <div class="stats">
+          <div class="stat">
+            <span class="label">预估奖励</span>
+            <strong id="estimatedReward">-</strong>
+          </div>
+          <div class="stat">
+            <span class="label">最低奖励</span>
+            <strong id="minimumReward">-</strong>
+          </div>
+          <div class="stat">
+            <span class="label">USDT 余额</span>
+            <strong id="usdtBalance">-</strong>
+          </div>
+          <div class="stat">
+            <span class="label">USDT 授权额度</span>
+            <strong id="usdtAllowance">-</strong>
+          </div>
+        </div>
+
+        <div class="cta-row">
+          <button class="ghost" id="previewBtn">刷新报价</button>
+          <button class="secondary" id="approveBtn">授权 USDT</button>
+          <button class="primary" id="buyBtn">立即购买</button>
+        </div>
+
+        <div class="status" id="statusBox">等待连接钱包...</div>
+        <div class="footer-note">
+          提示: 用户可以通过 <code>?ref=0xYourAddress</code> 链接访问，推荐人字段将自动填充。
+        </div>
+      </div>
+
+      <!-- Info Card -->
+      <div class="card">
+        <h2>链上数据</h2>
+        <p class="desc">
+          以下数值根据合约配置和当前用户上下文实时计算。
+        </p>
+
+        <div class="list">
+          <div class="row"><span>钱包地址</span><code id="walletAddress">未连接</code></div>
+          <div class="row"><span>网络</span><strong id="networkName">未知</strong></div>
+          <div class="row"><span>绑定推荐人</span><code id="boundReferrer">-</code></div>
+          <div class="row"><span>直接推荐奖励</span><strong id="directAmount">-</strong></div>
+          <div class="row"><span>间接推荐奖励</span><strong id="indirectAmount">-</strong></div>
+          <div class="row"><span>手续费</span><strong id="feeAmount">-</strong></div>
+          <div class="row"><span>产品成本</span><strong id="costAmount">-</strong></div>
+          <div class="row"><span>奖励池</span><strong id="rewardPoolAmount">-</strong></div>
+          <div class="row"><span>产品成本比例</span><strong id="productCostBps">-</strong></div>
+          <div class="row"><span>奖励比例</span><strong id="rewardBps">-</strong></div>
+          <div class="row"><span>USDT 代币</span><code id="usdtTokenAddress">-</code></div>
+          <div class="row"><span>资产代币</span><code id="assetTokenAddress">-</code></div>
+          <div class="row"><span>资产来源钱包</span><code id="assetSourceWallet">-</code></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Orders Section -->
+    <section class="section admin-grid">
+      <div class="card">
+        <h2>订单中心</h2>
+        <p class="desc">
+          订单在购买成功后保存在浏览器本地。管理员可以查看、搜索、更新状态和导出记录。
+        </p>
+
+        <div class="stats">
+          <div class="stat">
+            <span class="label">可见订单</span>
+            <strong id="ordersVisibleCount">0</strong>
+          </div>
+          <div class="stat">
+            <span class="label">已确认订单</span>
+            <strong id="ordersConfirmedCount">0</strong>
+          </div>
+          <div class="stat">
+            <span class="label">可见 USDT 总额</span>
+            <strong id="ordersUsdtTotal">0</strong>
+          </div>
+          <div class="stat">
+            <span class="label">管理员权限</span>
+            <strong id="adminStatus">否</strong>
+          </div>
+        </div>
+
+        <div class="field-grid">
+          <label class="field">
+            <span class="label">搜索</span>
+            <input id="orderSearchInput" type="text" placeholder="订单号 / 钱包 / 姓名 / 电话 / 交易哈希" />
+          </label>
+          <label class="field">
+            <span class="label">状态筛选</span>
+            <select id="orderStatusFilter">
+              <option value="all">全部</option>
+              <option value="pending">待处理</option>
+              <option value="confirmed">已确认</option>
+              <option value="failed">失败</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="toolbar">
+          <button class="ghost" id="refreshOrdersBtn">刷新订单</button>
+          <button class="ghost" id="exportCsvBtn">导出 Excel (CSV)</button>
+          <button class="ghost" id="exportJsonBtn">导出 JSON</button>
+        </div>
+
+        <div class="status" id="orderStatusBox">暂无订单。</div>
+        <div class="footer-note">
+          订单仅存储在当前浏览器的 <code>localStorage</code> 中。
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>订单管理</h2>
+        <p class="desc">
+          非管理员用户只能看到自己的订单。管理员可以查看所有本地订单并更新状态。
+        </p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>订单</th>
+                <th>客户</th>
+                <th>钱包</th>
+                <th>金额</th>
+                <th>奖励</th>
+                <th>状态</th>
+                <th>交易</th>
+              </tr>
+            </thead>
+            <tbody id="ordersTableBody">
+              <tr>
+                <td colspan="7" class="muted">暂无订单。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer style="text-align: center; padding: 40px 0 20px; color: var(--muted); font-size: 13px;">
+      <p>Asset Mall &copy; 2024 | 基于 BSC 智能合约构建</p>
+    </footer>
+  </div>
+
+  <!-- Ethers.js -->
+  <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
