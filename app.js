@@ -93,7 +93,7 @@ const DEFAULT_PRODUCTS = [
     sku: "SKU-STARTER-001",
     name: "入门体验套餐",
     tag: "新客推荐",
-    price: "100",
+    price: "1",
     image: "🚀",
     description: "适合首次下单用户，快速体验商城购买和链上奖励发放流程。",
     active: true
@@ -103,7 +103,7 @@ const DEFAULT_PRODUCTS = [
     sku: "SKU-GROWTH-002",
     name: "成长进阶套餐",
     tag: "热卖",
-    price: "500",
+    price: "2",
     image: "💎",
     description: "适合持续参与用户，享受更高金额的奖励分账和订单跟踪服务。",
     active: true
@@ -113,7 +113,7 @@ const DEFAULT_PRODUCTS = [
     sku: "SKU-PREMIUM-003",
     name: "旗舰尊享套餐",
     tag: "高端",
-    price: "1000",
+    price: "3",
     image: "🏆",
     description: "面向高净值用户，适合批量采购、渠道合作和私域裂变推广。",
     active: true
