@@ -1181,6 +1181,7 @@
           <div class="row"><span>USDT 代币</span><code id="usdtTokenAddress">-</code></div>
           <div class="row"><span>资产代币</span><code id="assetTokenAddress">-</code></div>
           <div class="row"><span>资产来源钱包</span><code id="assetSourceWallet">-</code></div>
+          <div class="row"><span>奖励池余额</span><strong id="assetSourceBalance">-</strong></div>
         </div>
       </div>
     </section>
@@ -1199,7 +1200,7 @@
           </label>
           <label class="field">
             <span class="label">商品售价 (USDT)</span>
-            <input id="productPriceInput" type="number" min="0" step="0.000001" placeholder="例如: 100" />
+            <input id="productPriceInput" type="number" min="0" step="0.000001" placeholder="例如: 1" />
           </label>
         </div>
 
@@ -1227,6 +1228,27 @@
         <div class="status" id="productStatusBox">请连接管理员钱包后管理商品。</div>
         <div class="helper-text">
           说明: 商品数据是前端本地版，当前浏览器保存一份。若你需要多设备同步，下一步应接数据库后台。
+        </div>
+
+        <!-- 管理员地址管理 -->
+        <div style="margin-top: 32px; padding-top: 24px; border-top: 1px solid rgba(148, 163, 184, 0.2);">
+          <h3 style="margin: 0 0 12px; font-size: 16px;">管理员地址管理</h3>
+          <p class="desc" style="font-size: 13px; margin-bottom: 12px;">
+            添加其他钱包地址为管理员，这些地址将拥有查看和管理所有订单的权限。
+          </p>
+          <div class="field-grid">
+            <label class="field" style="flex: 1;">
+              <span class="label">新管理员地址</span>
+              <input id="newAdminAddressInput" type="text" placeholder="0x..." />
+            </label>
+            <div style="display: flex; align-items: flex-end;">
+              <button class="secondary" id="addAdminBtn" style="height: 44px;">添加管理员</button>
+            </div>
+          </div>
+          <div class="admin-list" id="adminList" style="margin-top: 12px;">
+            <!-- 动态渲染管理员列表 -->
+          </div>
+          <div class="status" id="adminManageStatus" style="margin-top: 12px;"></div>
         </div>
       </div>
 
