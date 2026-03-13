@@ -58,8 +58,12 @@ const state = {
   signer: null,
   account: null,
   chainId: null,
+  lastWalletType: null,
   adminAddress: ethers.ZeroAddress,
   isAdmin: false,
+  products: [],
+  selectedProductId: null,
+  editingProductId: null,
   revenueShare: null,
   rewarder: null,
   usdt: null,
@@ -81,6 +85,71 @@ const ui = {};
 
 // 存储键
 const STORAGE_KEY = "assetMallOrdersV1";
+const PRODUCT_STORAGE_KEY = "assetMallProductsV1";
+
+const DEFAULT_PRODUCTS = [
+  {
+    id: "starter-pack",
+    sku: "SKU-STARTER-001",
+    name: "入门体验套餐",
+    tag: "新客推荐",
+    price: "100",
+    image: "🚀",
+    description: "适合首次下单用户，快速体验商城购买和链上奖励发放流程。",
+    active: true
+  },
+  {
+    id: "growth-pack",
+    sku: "SKU-GROWTH-002",
+    name: "成长进阶套餐",
+    tag: "热卖",
+    price: "500",
+    image: "💎",
+    description: "适合持续参与用户，享受更高金额的奖励分账和订单跟踪服务。",
+    active: true
+  },
+  {
+    id: "premium-pack",
+    sku: "SKU-PREMIUM-003",
+    name: "旗舰尊享套餐",
+    tag: "高端",
+    price: "1000",
+    image: "🏆",
+    description: "面向高净值用户，适合批量采购、渠道合作和私域裂变推广。",
+    active: true
+  }
+];
+
+const WALLET_CONFIG = {
+  metamask: {
+    name: "MetaMask",
+    match: (provider) => !!provider?.isMetaMask && !provider?.isTrust && !provider?.isTokenPocket
+  },
+  trust: {
+    name: "Trust Wallet",
+    match: (provider) => !!provider?.isTrust || !!provider?.isTrustWallet
+  },
+  tokenpocket: {
+    name: "TokenPocket",
+    match: (provider) => !!provider?.isTokenPocket
+  },
+  math: {
+    name: "Math Wallet",
+    match: (provider) => !!provider?.isMathWallet
+  },
+  binance: {
+    name: "Binance Wallet",
+    match: (provider) => !!provider?.isBinance
+  },
+  okx: {
+    name: "OKX Wallet",
+    match: (provider) => !!provider?.isOKExWallet || !!provider?.isOkxWallet
+  },
+  injected: {
+    name: "浏览器钱包",
+    match: (provider) => !!provider
+  }
+};
 
 // ============================================
 // 工具函数
@@ -150,16 +219,102 @@ function escapeHtml(value) {
 }
 
 function extractError(error) {
+  // 尝试提取各种可能的错误信息
   if (error?.info?.error?.message) return error.info.error.message;
+  if (error?.error?.message) return error.error.message;
+  if (error?.data?.message) return error.data.message;
   if (error?.shortMessage) return error.shortMessage;
   if (error?.reason) return error.reason;
-  if (error?.message) return error.message;
+  if (error?.message) {
+    // 过滤掉常见的无用信息
+    const msg = error.message;
+    if (msg.includes("user rejected")) return "用户取消了交易";
+    if (msg.includes("insufficient funds")) return "BNB 余额不足支付 Gas 费";
+    if (msg.includes("Internal JSON-RPC error")) {
+      // 尝试从 error.data 获取更多信息
+      if (error.data) {
+        return `合约执行失败: ${JSON.stringify(error.data)}`;
+      }
+      return "合约执行失败，请检查: 1) USDT 授权额度 2) 网络连接 3) 合约地址配置";
+    }
+    return msg;
+  }
   return "未知错误";
+}
+
+// 详细的错误分析
+function analyzeError(error) {
+  const analysis = {
+    type: "unknown",
+    message: extractError(error),
+    suggestion: ""
+  };
+
+  const msg = JSON.stringify(error).toLowerCase();
+  const errorMessage = (error?.message || "").toLowerCase();
+  const errorData = error?.data || error?.error?.data || "";
+
+  // 检查错误数据中的 revert reason
+  if (errorData && typeof errorData === 'string') {
+    // 尝试解码 revert reason
+    if (errorData.includes('0x08c379a0')) {
+      analysis.type = "contract_revert";
+      analysis.suggestion = "合约执行被回滚，可能是参数错误或合约状态问题";
+    }
+  }
+
+  if (msg.includes("allowance") || msg.includes("approval")) {
+    analysis.type = "allowance";
+    analysis.suggestion = "请先点击'授权 USDT'按钮授权合约使用您的 USDT";
+  } else if (msg.includes("insufficient funds")) {
+    analysis.type = "gas";
+    analysis.suggestion = "您的 BNB 余额不足，无法支付交易手续费(Gas费)";
+  } else if (msg.includes("user rejected") || msg.includes("rejected")) {
+    analysis.type = "rejected";
+    analysis.suggestion = "您在钱包中取消了交易，如需购买请重新确认";
+  } else if (msg.includes("rewarder not set") || msg.includes("rewarder")) {
+    analysis.type = "contract_config";
+    analysis.suggestion = "合约配置错误：奖励合约未设置，请联系管理员";
+  } else if (msg.includes("referrer mismatch")) {
+    analysis.type = "referrer";
+    analysis.suggestion = "推荐人地址不匹配，请使用最初绑定的推荐人";
+  } else if (msg.includes("amount is zero")) {
+    analysis.type = "amount";
+    analysis.suggestion = "USDT 金额必须大于 0";
+  } else if (msg.includes("circular referral")) {
+    analysis.type = "referrer";
+    analysis.suggestion = "不能设置循环推荐关系";
+  } else if (msg.includes("self referral")) {
+    analysis.type = "referrer";
+    analysis.suggestion = "不能将自己设为推荐人";
+  } else if (msg.includes("asset amount below minimum")) {
+    analysis.type = "slippage";
+    analysis.suggestion = "滑点保护触发：实际奖励低于最低预期，请增加滑点容忍度或减少购买金额";
+  } else if (msg.includes("execution reverted")) {
+    analysis.type = "revert";
+    analysis.suggestion = "合约执行被回滚，请检查参数是否正确";
+  } else if (errorMessage.includes("internal json-rpc error")) {
+    analysis.type = "rpc_error";
+    analysis.suggestion = "可能的原因：\n1. 输入的 USDT 金额超过余额\n2. 合约地址配置错误\n3. 网络连接不稳定\n4. 合约已被暂停或出现故障\n\n请检查输入金额和合约配置";
+  }
+
+  return analysis;
 }
 
 function getExplorerLink(hash, type = "tx") {
   if (!hash || hash === "-") return "#";
   return `${CONFIG.blockExplorer}/${type}/${hash}`;
+}
+
+function isFileProtocol() {
+  return window.location.protocol === "file:";
+}
+
+function getBaseUrl() {
+  if (isFileProtocol()) {
+    return window.location.href.split("?")[0].split("#")[0];
+  }
+  return window.location.origin + window.location.pathname;
 }
 
 // ============================================
@@ -207,6 +362,93 @@ function generateUUID() {
     const v = c === "x" ? r : (r & 0x3 | 0x8);
     return v.toString(16);
   });
+}
+
+function normalizeProduct(raw, index = 0) {
+  return {
+    id: raw?.id || generateUUID(),
+    sku: raw?.sku || "SKU-" + String(index + 1).padStart(3, "0"),
+    name: raw?.name || "未命名商品",
+    tag: raw?.tag || "商品",
+    price: String(raw?.price || "0"),
+    image: raw?.image || "🛍️",
+    description: raw?.description || "",
+    active: raw?.active !== false
+  };
+}
+
+function loadStoredProducts() {
+  try {
+    const raw = window.localStorage.getItem(PRODUCT_STORAGE_KEY);
+    if (!raw) {
+      window.localStorage.setItem(PRODUCT_STORAGE_KEY, JSON.stringify(DEFAULT_PRODUCTS));
+      return DEFAULT_PRODUCTS.map(normalizeProduct);
+    }
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || !parsed.length) {
+      window.localStorage.setItem(PRODUCT_STORAGE_KEY, JSON.stringify(DEFAULT_PRODUCTS));
+      return DEFAULT_PRODUCTS.map(normalizeProduct);
+    }
+    return parsed.map(normalizeProduct);
+  } catch (error) {
+    console.error("加载商品失败:", error);
+    return DEFAULT_PRODUCTS.map(normalizeProduct);
+  }
+}
+
+function saveStoredProducts(products) {
+  const normalized = products.map(normalizeProduct);
+  state.products = normalized;
+  window.localStorage.setItem(PRODUCT_STORAGE_KEY, JSON.stringify(normalized));
+}
+
+function getActiveProducts() {
+  return state.products.filter((product) => product.active !== false);
+}
+
+function getSelectedProduct() {
+  return state.products.find((product) => product.id === state.selectedProductId) || null;
+}
+
+function fillAmountFromSelectedProduct() {
+  const product = getSelectedProduct();
+  if (!product) {
+    ui.amountInput.value = "";
+    ui.amountInput.readOnly = false;
+    return;
+  }
+  ui.amountInput.value = product.price;
+  ui.amountInput.readOnly = true;
+}
+
+function updateSelectedProductSummary() {
+  const product = getSelectedProduct();
+  if (!product) {
+    ui.selectedProductName.textContent = "暂未选择商品";
+    ui.selectedProductTag.textContent = "未选择";
+    ui.selectedProductDesc.textContent = "请先在上方商品区选择一个商品，系统将自动填入价格。";
+    ui.selectedProductPrice.textContent = "-";
+    ui.selectedProductSku.textContent = "-";
+    return;
+  }
+
+  ui.selectedProductName.textContent = product.name;
+  ui.selectedProductTag.textContent = product.tag || "商品";
+  ui.selectedProductDesc.textContent = product.description || "暂无商品说明。";
+  ui.selectedProductPrice.textContent = product.price + " " + state.usdtSymbol;
+  ui.selectedProductSku.textContent = product.sku || "-";
+}
+
+function setSelectedProduct(productId, shouldRefresh = true) {
+  const product = state.products.find((item) => item.id === productId && item.active !== false);
+  if (!product) return;
+  state.selectedProductId = product.id;
+  fillAmountFromSelectedProduct();
+  updateSelectedProductSummary();
+  renderProducts();
+  if (shouldRefresh) {
+    refreshPreview();
+  }
 }
 
 function collectCustomerInfo() {
@@ -266,6 +508,8 @@ function getVisibleOrders() {
 
     const haystack = [
       order.orderNo,
+      order.productName,
+      order.productSku,
       order.wallet,
       order.name,
       order.phone,
@@ -332,7 +576,7 @@ function renderOrders() {
 
     return (
       "<tr>" +
-        "<td><strong>" + escapeHtml(order.orderNo) + "</strong><small>" + escapeHtml(formatDateTime(order.createdAt)) + "</small></td>" +
+        "<td><strong>" + escapeHtml(order.orderNo) + "</strong><small>" + escapeHtml(formatDateTime(order.createdAt)) + "<br>商品: " + escapeHtml(order.productName || "-") + "</small></td>" +
         "<td><strong>" + escapeHtml(order.name) + "</strong><small>" + escapeHtml(order.phone) + "<br>" + escapeHtml(order.address) + (order.note ? "<br>备注: " + escapeHtml(order.note) : "") + "</small></td>" +
         "<td><code>" + escapeHtml(shortAddress(order.wallet)) + "</code><small>推荐人: " + escapeHtml(shortAddress(order.referrer)) + "</small></td>" +
         "<td><strong>" + escapeHtml(amountText) + "</strong><small>奖励池: " + escapeHtml(formatUnits(BigInt(order.rewardPoolAmount || "0"), state.usdtDecimals)) + " " + escapeHtml(state.usdtSymbol) + "</small></td>" +
@@ -357,8 +601,13 @@ function renderOrders() {
   }
 }
 
-function exportOrders(format = "csv") {
-  const orders = getVisibleOrders();
+function exportOrders(format = "csv", scope = "visible") {
+  if (scope === "all" && !state.isAdmin) {
+    setOrderStatus("只有管理员可以导出全部订单。", "error");
+    return;
+  }
+
+  const orders = scope === "all" ? loadStoredOrders() : getVisibleOrders();
   if (!orders.length) {
     setOrderStatus("没有可导出的订单。", "warn");
     return;
@@ -372,10 +621,10 @@ function exportOrders(format = "csv") {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = "asset-mall-orders-" + timestamp + ".json";
+    anchor.download = (scope === "all" ? "asset-mall-all-orders-" : "asset-mall-orders-") + timestamp + ".json";
     anchor.click();
     URL.revokeObjectURL(url);
-    setOrderStatus("JSON 订单导出成功。", "ok");
+    setOrderStatus(scope === "all" ? "全部订单 JSON 导出成功。" : "当前可见订单 JSON 导出成功。", "ok");
   } else {
     // 导出 CSV (Excel 兼容)
     const headers = [
@@ -383,6 +632,9 @@ function exportOrders(format = "csv") {
       "创建时间",
       "更新时间",
       "状态",
+      "商品名称",
+      "商品SKU",
+      "商品定价",
       "钱包地址",
       "姓名",
       "电话",
@@ -408,6 +660,9 @@ function exportOrders(format = "csv") {
         order.createdAt ? new Date(order.createdAt).toLocaleString("zh-CN") : "",
         order.updatedAt ? new Date(order.updatedAt).toLocaleString("zh-CN") : "",
         statusMap[order.status] || order.status || "",
+        order.productName || "",
+        order.productSku || "",
+        order.productPrice || "",
         order.wallet || "",
         order.name || "",
         order.phone || "",
@@ -444,16 +699,266 @@ function exportOrders(format = "csv") {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = "asset-mall-orders-" + timestamp + ".csv";
+    anchor.download = (scope === "all" ? "asset-mall-all-orders-" : "asset-mall-orders-") + timestamp + ".csv";
     anchor.click();
     URL.revokeObjectURL(url);
-    setOrderStatus("CSV 订单导出成功（可用 Excel 打开）。", "ok");
+    setOrderStatus(scope === "all" ? "全部订单 CSV 导出成功（可用 Excel 打开）。" : "当前可见订单 CSV 导出成功（可用 Excel 打开）。", "ok");
+  }
+}
+
+function renderProducts() {
+  if (!ui.productGrid) return;
+
+  const activeProducts = getActiveProducts();
+  if (!activeProducts.length) {
+    ui.productGrid.innerHTML = '<div class="muted">暂无可售商品，请管理员先创建商品。</div>';
+    state.selectedProductId = null;
+    fillAmountFromSelectedProduct();
+    updateSelectedProductSummary();
+    return;
+  }
+
+  if (!state.selectedProductId || !activeProducts.some((product) => product.id === state.selectedProductId)) {
+    state.selectedProductId = activeProducts[0].id;
+  }
+
+  ui.productGrid.innerHTML = activeProducts.map((product) => {
+    const imageHtml = /^https?:\/\//i.test(product.image)
+      ? '<img src="' + escapeHtml(product.image) + '" alt="' + escapeHtml(product.name) + '">'
+      : escapeHtml(product.image || "🛍️");
+
+    return (
+      '<article class="product-card' + (product.id === state.selectedProductId ? ' active' : '') + '">' +
+        '<div class="product-cover">' + imageHtml + '</div>' +
+        '<span class="product-tag">' + escapeHtml(product.tag || "商品") + '</span>' +
+        '<h3>' + escapeHtml(product.name) + '</h3>' +
+        '<p>' + escapeHtml(product.description || "暂无商品说明。") + '</p>' +
+        '<div class="product-meta">' +
+          '<div class="product-price"><span>售价</span><strong>' + escapeHtml(product.price) + ' ' + escapeHtml(state.usdtSymbol) + '</strong></div>' +
+          '<button class="' + (product.id === state.selectedProductId ? 'primary' : 'ghost') + ' product-select-btn" data-select-product="' + escapeHtml(product.id) + '">' +
+            (product.id === state.selectedProductId ? "已选择" : "选择商品") +
+          '</button>' +
+        '</div>' +
+      '</article>'
+    );
+  }).join("");
+
+  ui.productGrid.querySelectorAll("[data-select-product]").forEach((button) => {
+    button.addEventListener("click", () => {
+      setSelectedProduct(button.getAttribute("data-select-product"));
+      const current = getSelectedProduct();
+      setStatus(current ? "已选择商品: " + current.name : "商品已切换。", "ok");
+    });
+  });
+
+  fillAmountFromSelectedProduct();
+  updateSelectedProductSummary();
+}
+
+function resetProductForm() {
+  state.editingProductId = null;
+  if (!ui.productNameInput) return;
+  ui.productNameInput.value = "";
+  ui.productPriceInput.value = "";
+  ui.productTagInput.value = "";
+  ui.productImageInput.value = "";
+  ui.productDescriptionInput.value = "";
+  ui.saveProductBtn.textContent = "保存商品";
+}
+
+function collectProductForm() {
+  return {
+    name: ui.productNameInput.value.trim(),
+    price: ui.productPriceInput.value.trim(),
+    tag: ui.productTagInput.value.trim(),
+    image: ui.productImageInput.value.trim() || "🛍️",
+    description: ui.productDescriptionInput.value.trim()
+  };
+}
+
+function validateProductForm() {
+  const form = collectProductForm();
+  if (!state.isAdmin) {
+    throw new Error("只有管理员可以管理商品。");
+  }
+  if (!form.name) {
+    throw new Error("请输入商品名称。");
+  }
+  if (!form.price || Number(form.price) <= 0) {
+    throw new Error("请输入有效的商品价格。");
+  }
+  return form;
+}
+
+function renderAdminProducts() {
+  if (!ui.adminProductsSection || !ui.productAdminList) return;
+
+  if (!state.isAdmin) {
+    ui.adminProductsSection.classList.add("hidden");
+    ui.exportAllCsvBtn.classList.add("hidden");
+    ui.exportAllJsonBtn.classList.add("hidden");
+    return;
+  }
+
+  ui.adminProductsSection.classList.remove("hidden");
+  ui.exportAllCsvBtn.classList.remove("hidden");
+  ui.exportAllJsonBtn.classList.remove("hidden");
+
+  if (!state.products.length) {
+    ui.productAdminList.innerHTML = '<div class="muted">暂无商品，请先新增商品。</div>';
+    return;
+  }
+
+  ui.productAdminList.innerHTML = state.products.map((product) => (
+    '<div class="product-admin-item">' +
+      '<div>' +
+        '<div class="product-tag">' + escapeHtml(product.tag || "商品") + (product.active === false ? " / 已下架" : "") + '</div>' +
+        '<h3>' + escapeHtml(product.name) + '</h3>' +
+        '<p>SKU: ' + escapeHtml(product.sku) + '<br>售价: ' + escapeHtml(product.price) + ' ' + escapeHtml(state.usdtSymbol) + '<br>' + escapeHtml(product.description || "暂无商品说明。") + '</p>' +
+      '</div>' +
+      '<div class="product-admin-actions">' +
+        '<button class="ghost" data-edit-product="' + escapeHtml(product.id) + '">编辑</button>' +
+        '<button class="ghost" data-select-admin-product="' + escapeHtml(product.id) + '">设为当前</button>' +
+        '<button class="ghost" data-toggle-product="' + escapeHtml(product.id) + '">' + (product.active === false ? "上架" : "下架") + '</button>' +
+        '<button class="ghost" data-delete-product="' + escapeHtml(product.id) + '">删除</button>' +
+      '</div>' +
+    '</div>'
+  )).join("");
+
+  ui.productAdminList.querySelectorAll("[data-edit-product]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const product = state.products.find((item) => item.id === button.getAttribute("data-edit-product"));
+      if (!product) return;
+      state.editingProductId = product.id;
+      ui.productNameInput.value = product.name;
+      ui.productPriceInput.value = product.price;
+      ui.productTagInput.value = product.tag || "";
+      ui.productImageInput.value = product.image || "";
+      ui.productDescriptionInput.value = product.description || "";
+      ui.saveProductBtn.textContent = "更新商品";
+      ui.productStatusBox.textContent = "正在编辑商品: " + product.name;
+      ui.productStatusBox.className = "status ok";
+    });
+  });
+
+  ui.productAdminList.querySelectorAll("[data-select-admin-product]").forEach((button) => {
+    button.addEventListener("click", () => {
+      setSelectedProduct(button.getAttribute("data-select-admin-product"));
+    });
+  });
+
+  ui.productAdminList.querySelectorAll("[data-toggle-product]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const productId = button.getAttribute("data-toggle-product");
+      state.products = state.products.map((product) =>
+        product.id === productId ? { ...product, active: product.active === false } : product
+      );
+      saveStoredProducts(state.products);
+      renderProducts();
+      renderAdminProducts();
+      ui.productStatusBox.textContent = "商品状态已更新。";
+      ui.productStatusBox.className = "status ok";
+    });
+  });
+
+  ui.productAdminList.querySelectorAll("[data-delete-product]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const productId = button.getAttribute("data-delete-product");
+      const product = state.products.find((item) => item.id === productId);
+      if (!product) return;
+      if (!confirm("确定删除商品「" + product.name + "」吗？")) return;
+      state.products = state.products.filter((item) => item.id !== productId);
+      saveStoredProducts(state.products);
+      if (state.selectedProductId === productId) {
+        const firstActive = getActiveProducts()[0];
+        state.selectedProductId = firstActive ? firstActive.id : null;
+      }
+      renderProducts();
+      renderAdminProducts();
+      resetProductForm();
+      ui.productStatusBox.textContent = "商品已删除。";
+      ui.productStatusBox.className = "status ok";
+    });
+  });
+}
+
+function saveProductFromForm() {
+  try {
+    const form = validateProductForm();
+    if (state.editingProductId) {
+      state.products = state.products.map((product) =>
+        product.id === state.editingProductId ? { ...product, ...form } : product
+      );
+      ui.productStatusBox.textContent = "商品已更新。";
+    } else {
+      state.products.unshift(normalizeProduct({
+        id: generateUUID(),
+        sku: "SKU-" + Date.now(),
+        ...form,
+        active: true
+      }, state.products.length));
+      ui.productStatusBox.textContent = "商品已新增。";
+    }
+
+    saveStoredProducts(state.products);
+    if (!state.selectedProductId) {
+      state.selectedProductId = getActiveProducts()[0]?.id || null;
+    }
+    ui.productStatusBox.className = "status ok";
+    renderProducts();
+    renderAdminProducts();
+    resetProductForm();
+  } catch (error) {
+    ui.productStatusBox.textContent = extractError(error);
+    ui.productStatusBox.className = "status error";
   }
 }
 
 // ============================================
 // 区块链交互
 // ============================================
+
+function getInjectedProviders() {
+  const ethereum = window.ethereum;
+  if (!ethereum) return [];
+  if (Array.isArray(ethereum.providers) && ethereum.providers.length) {
+    return ethereum.providers;
+  }
+  return [ethereum];
+}
+
+function resolveProvider(walletType = "injected") {
+  const providers = getInjectedProviders();
+  if (!providers.length) return null;
+
+  const config = WALLET_CONFIG[walletType] || WALLET_CONFIG.injected;
+  const matchedProvider = providers.find((provider) => config.match(provider));
+  return matchedProvider || (walletType === "injected" ? providers[0] : null);
+}
+
+function markWalletAvailability() {
+  const providers = getInjectedProviders();
+  const hasInjected = providers.length > 0;
+
+  document.querySelectorAll(".wallet-option").forEach((option) => {
+    const walletType = option.getAttribute("data-wallet");
+    if (walletType === "walletconnect") {
+      option.classList.add("disabled");
+      option.setAttribute("data-status", "暂未接入");
+      return;
+    }
+
+    const available = !!resolveProvider(walletType);
+    option.classList.toggle("available", available);
+    option.classList.toggle("disabled", !available && hasInjected && walletType !== "injected");
+    option.setAttribute("data-status", available ? "已检测" : (walletType === "injected" && hasInjected ? "可连接" : "未安装"));
+  });
+}
+
+function updateWalletButtonState() {
+  if (!ui.connectBtn) return;
+  ui.connectBtn.textContent = state.account ? `已连接 ${shortAddress(state.account)}` : "连接钱包";
+}
 
 async function loadContracts() {
   // 初始化 provider
@@ -499,6 +1004,10 @@ async function loadContracts() {
   state.assetDecimals = Number(assetDecimals);
   state.productCostBps = productCostBps;
   state.rewardBps = rewardBps;
+  state.products = loadStoredProducts();
+  if (!state.selectedProductId) {
+    state.selectedProductId = getActiveProducts()[0]?.id || null;
+  }
 
   // 更新 UI
   ui.revenueShareAddress.textContent = CONFIG.revenueShare;
@@ -510,24 +1019,74 @@ async function loadContracts() {
   ui.productCostBps.textContent = formatPercentFromBps(productCostBps);
   ui.rewardBps.textContent = formatPercentFromBps(rewardBps);
 
+  renderProducts();
+  renderAdminProducts();
   renderOrders();
 }
 
-async function connectWallet() {
-  if (!window.ethereum) {
-    setStatus("未检测到钱包。请安装 MetaMask 或其他 EVM 钱包。", "error");
+// 显示钱包选择模态框
+function showWalletModal() {
+  if (ui.walletModal) {
+    markWalletAvailability();
+    ui.walletModal.classList.add("active");
+  }
+}
+
+// 隐藏钱包选择模态框
+function hideWalletModal() {
+  if (ui.walletModal) {
+    ui.walletModal.classList.remove("active");
+  }
+}
+
+// 使用指定钱包连接
+async function connectWithWallet(walletType) {
+  hideWalletModal();
+
+  if (walletType === "walletconnect") {
+    setStatus("WalletConnect 需要额外集成。请使用浏览器插件钱包。", "warn");
+    return;
+  }
+
+  const provider = resolveProvider(walletType);
+
+  if (!provider) {
+    const name = WALLET_CONFIG[walletType]?.name || "该钱包";
+    setStatus(`未检测到 ${name}。请确保已安装钱包插件。`, "error");
+
+    // 打开下载页面
+    const downloadUrls = {
+      metamask: "https://metamask.io/download/",
+      trust: "https://trustwallet.com/browser-extension",
+      tokenpocket: "https://www.tokenpocket.pro/",
+      math: "https://mathwallet.org/",
+      binance: "https://www.bnbchain.org/en/binance-wallet",
+      okx: "https://www.okx.com/web3"
+    };
+    if (downloadUrls[walletType]) {
+      setTimeout(() => {
+        if (confirm(`是否打开 ${name} 下载页面？`)) {
+          window.open(downloadUrls[walletType], "_blank");
+        }
+      }, 100);
+    }
     return;
   }
 
   try {
-    state.browserProvider = new ethers.BrowserProvider(window.ethereum, "any");
+    // 设置当前使用的 provider
+    window.currentProvider = provider;
+    state.lastWalletType = walletType;
+
+    state.browserProvider = new ethers.BrowserProvider(provider, "any");
     await state.browserProvider.send("eth_requestAccounts", []);
     state.signer = await state.browserProvider.getSigner();
     const network = await state.browserProvider.getNetwork();
 
     state.account = await state.signer.getAddress();
     state.chainId = Number(network.chainId);
-    // 检查是否为管理员（合约所有者或配置的管理员列表中）
+
+    // 检查是否为管理员
     const isContractOwner = state.adminAddress !== ethers.ZeroAddress &&
                             state.account.toLowerCase() === state.adminAddress.toLowerCase();
     const isConfigAdmin = CONFIG.adminWallets.some(
@@ -537,6 +1096,7 @@ async function connectWallet() {
 
     ui.walletAddress.textContent = shortAddress(state.account);
     ui.networkName.textContent = state.chainId === CONFIG.chainId ? CONFIG.chainName : "Chain ID " + state.chainId;
+    updateWalletButtonState();
 
     // 获取绑定的推荐人
     state.boundReferrer = await state.revenueShare.referrerOf(state.account);
@@ -544,23 +1104,50 @@ async function connectWallet() {
 
     await refreshWalletMetrics();
     await refreshPreview();
+    renderAdminProducts();
     renderOrders();
 
-    setStatus("钱包连接成功。", "ok");
+    // 设置事件监听
+    provider.on("accountsChanged", handleAccountsChanged);
+    provider.on("chainChanged", handleChainChanged);
+
+    const name = WALLET_CONFIG[walletType]?.name || "钱包";
+    setStatus(`${name} 连接成功。`, "ok");
   } catch (error) {
     console.error(error);
     setStatus("连接钱包失败: " + extractError(error), "error");
   }
 }
 
+// 保持向后兼容的通用连接函数
+async function connectWallet() {
+  const providers = getInjectedProviders();
+  if (!providers.length) {
+    if (isFileProtocol()) {
+      setStatus("未检测到钱包。你当前可能是直接用 file:// 打开的页面，请改用本地 HTTP 服务，或在钱包扩展里开启“允许访问文件网址”。", "error");
+    } else {
+      setStatus("未检测到浏览器钱包。请先安装 MetaMask、OKX Wallet、Trust Wallet 等插件。", "error");
+    }
+    return;
+  }
+
+  if (providers.length === 1) {
+    await connectWithWallet("injected");
+    return;
+  }
+
+  showWalletModal();
+}
+
 async function switchToBsc() {
-  if (!window.ethereum) {
+  const provider = window.currentProvider || window.ethereum;
+  if (!provider) {
     setStatus("需要钱包才能切换网络。", "error");
     return;
   }
 
   try {
-    await window.ethereum.request({
+    await provider.request({
       method: "wallet_switchEthereumChain",
       params: [{ chainId: CONFIG.chainIdHex }]
     });
@@ -568,7 +1155,7 @@ async function switchToBsc() {
   } catch (error) {
     if (error.code === 4902) {
       try {
-        await window.ethereum.request({
+        await provider.request({
           method: "wallet_addEthereumChain",
           params: [{
             chainId: CONFIG.chainIdHex,
@@ -634,15 +1221,23 @@ function computeMinimumReward(estimatedReward) {
 
 async function refreshPreview() {
   try {
+    if (!getSelectedProduct()) {
+      resetPreview();
+      setStatus("请先选择一个商品。", "warn");
+      return;
+    }
+
     const rawAmount = ui.amountInput.value.trim();
     if (!rawAmount || Number(rawAmount) <= 0) {
       resetPreview();
+      updateAmountCheck(null, null);
       return;
     }
 
     const usdtAmount = parseAmount(rawAmount, state.usdtDecimals);
     if (usdtAmount === 0n) {
       resetPreview();
+      updateAmountCheck(null, null);
       return;
     }
 
@@ -674,6 +1269,17 @@ async function refreshPreview() {
     ui.estimatedReward.textContent = formatUnits(previewReward, state.assetDecimals) + " " + state.assetSymbol;
     ui.minimumReward.textContent = formatUnits(minimumReward, state.assetDecimals) + " " + state.assetSymbol;
 
+    // 更新金额检查提示
+    if (state.account) {
+      try {
+        const balance = await state.usdt.balanceOf(state.account);
+        const allowance = await state.usdt.allowance(state.account, CONFIG.revenueShare);
+        updateAmountCheck(usdtAmount, balance, allowance);
+      } catch (e) {
+        console.warn("余额检查失败:", e);
+      }
+    }
+
     // 更新绑定推荐人显示
     if (state.account) {
       try {
@@ -692,6 +1298,40 @@ async function refreshPreview() {
   } catch (error) {
     console.error(error);
     setStatus("刷新报价失败: " + extractError(error), "error");
+  }
+}
+
+// 更新金额检查提示
+function updateAmountCheck(usdtAmount, balance, allowance) {
+  const checkEl = document.getElementById("amountCheck");
+  const iconEl = document.getElementById("amountCheckIcon");
+  const textEl = document.getElementById("amountCheckText");
+
+  if (!checkEl || !iconEl || !textEl) return;
+
+  if (!usdtAmount || balance === null) {
+    checkEl.style.display = "none";
+    return;
+  }
+
+  checkEl.style.display = "flex";
+
+  const balanceNum = Number(formatUnits(balance, state.usdtDecimals));
+  const amountNum = Number(formatUnits(usdtAmount, state.usdtDecimals));
+  const allowanceNum = allowance ? Number(formatUnits(allowance, state.usdtDecimals)) : 0;
+
+  if (balance < usdtAmount) {
+    checkEl.className = "amount-check error";
+    iconEl.textContent = "❌";
+    textEl.textContent = `USDT 余额不足！当前: ${balanceNum.toFixed(6)} USDT，需要: ${amountNum.toFixed(6)} USDT，差额: ${(amountNum - balanceNum).toFixed(6)} USDT`;
+  } else if (allowance < usdtAmount) {
+    checkEl.className = "amount-check warning";
+    iconEl.textContent = "⚠️";
+    textEl.textContent = `USDT 授权额度不足！当前授权: ${allowanceNum.toFixed(6)} USDT，需要: ${amountNum.toFixed(6)} USDT。请先点击"授权 USDT"按钮。`;
+  } else {
+    checkEl.className = "amount-check ok";
+    iconEl.textContent = "✅";
+    textEl.textContent = `金额检查通过！余额: ${balanceNum.toFixed(6)} USDT，授权: ${allowanceNum.toFixed(6)} USDT`;
   }
 }
 
@@ -732,6 +1372,11 @@ async function buyNow() {
     ensureConnected();
     await ensureBsc();
 
+    const selectedProduct = getSelectedProduct();
+    if (!selectedProduct) {
+      throw new Error("请先选择商品。");
+    }
+
     const rawAmount = ui.amountInput.value.trim();
     if (!rawAmount || Number(rawAmount) <= 0) {
       throw new Error("请输入有效的 USDT 金额。");
@@ -751,17 +1396,56 @@ async function buyNow() {
     const productCostAmount = usdtAmount * state.productCostBps / 10000n;
     const rewardPoolAmount = usdtAmount - directAmount - indirectAmount - feeAmount - productCostAmount;
 
-    // 检查授权额度
+    // 详细前置检查
+    setStatus("正在检查购买条件...", "warn");
+
+    // 1. 检查 USDT 余额
+    const balance = await state.usdt.balanceOf(state.account);
+    if (balance < usdtAmount) {
+      throw new Error(`USDT 余额不足。当前余额: ${formatUnits(balance, state.usdtDecimals)} ${state.usdtSymbol}, 需要: ${formatUnits(usdtAmount, state.usdtDecimals)} ${state.usdtSymbol}`);
+    }
+
+    // 2. 检查授权额度
     const allowance = await state.usdt.allowance(state.account, CONFIG.revenueShare);
     if (allowance < usdtAmount) {
-      throw new Error("USDT 授权额度不足，请先授权。");
+      throw new Error(`USDT 授权额度不足。当前授权: ${formatUnits(allowance, state.usdtDecimals)} ${state.usdtSymbol}, 需要: ${formatUnits(usdtAmount, state.usdtDecimals)} ${state.usdtSymbol}。请先点击"授权 USDT"按钮。`);
+    }
+
+    // 3. 检查奖励合约是否设置
+    if (!state.rewarder || !state.rewarder.target) {
+      throw new Error("奖励合约未正确初始化，请刷新页面重试。");
+    }
+
+    // 4. 检查预估奖励
+    if (state.lastPreviewReward === 0n) {
+      throw new Error("无法获取奖励预估，请检查网络连接或稍后重试。");
+    }
+
+    // 5. 检查 BNB 余额（用于支付 Gas）
+    const bnbBalance = await state.browserProvider.getBalance(state.account);
+    if (bnbBalance === 0n) {
+      throw new Error("BNB 余额为 0，无法支付交易手续费。请先充值 BNB。");
     }
 
     // 发送购买交易
     const signerRevenueShare = state.revenueShare.connect(state.signer);
-    setStatus("正在发送购买交易...", "warn");
+    setStatus("正在发送购买交易...\n请在钱包中确认交易", "warn");
 
-    const tx = await signerRevenueShare.purchase(usdtAmount, referrer, minAssetAmount);
+    // 添加 gas 限制估算
+    let gasLimit;
+    try {
+      gasLimit = await signerRevenueShare.purchase.estimateGas(usdtAmount, referrer, minAssetAmount);
+      // 增加 20% 缓冲
+      gasLimit = (gasLimit * 120n) / 100n;
+    } catch (gasError) {
+      console.warn("Gas 估算失败:", gasError);
+      // 使用默认 gas 限制
+      gasLimit = 500000n;
+    }
+
+    const tx = await signerRevenueShare.purchase(usdtAmount, referrer, minAssetAmount, {
+      gasLimit: gasLimit
+    });
 
     // 创建待处理订单
     pendingOrder = {
@@ -775,6 +1459,10 @@ async function buyNow() {
       phone: customer.phone,
       address: customer.address,
       note: customer.note,
+      productId: selectedProduct.id,
+      productName: selectedProduct.name,
+      productSku: selectedProduct.sku,
+      productPrice: selectedProduct.price,
       referrer,
       usdtAmount: usdtAmount.toString(),
       rewardPoolAmount: rewardPoolAmount.toString(),
@@ -785,33 +1473,53 @@ async function buyNow() {
     upsertOrder(pendingOrder);
 
     setStatus("购买交易已发送: " + shortAddress(tx.hash) + "\n等待确认...", "warn");
-    await tx.wait();
+    const receipt = await tx.wait();
+
+    // 检查交易状态
+    if (receipt.status === 0) {
+      throw new Error("交易执行失败（被回滚），请检查合约状态或联系管理员。");
+    }
 
     updateOrder(pendingOrder.id, {
       status: "confirmed",
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
+      blockNumber: receipt.blockNumber,
+      gasUsed: receipt.gasUsed.toString()
     });
 
     await refreshWalletMetrics();
     await refreshPreview();
-    setStatus("购买已成功确认！", "ok");
+    setStatus("购买已成功确认！\n区块号: " + receipt.blockNumber, "ok");
   } catch (error) {
-    console.error(error);
+    console.error("购买失败详情:", error);
+
+    // 详细错误分析
+    const analysis = analyzeError(error);
+    let errorMsg = "购买失败: " + analysis.message;
+    if (analysis.suggestion) {
+      errorMsg += "\n\n建议: " + analysis.suggestion;
+    }
+
+    // 记录到控制台供调试
+    console.log("错误分析:", analysis);
+    console.log("原始错误:", error);
+
     if (pendingOrder) {
       updateOrder(pendingOrder.id, {
         status: "failed",
         updatedAt: new Date().toISOString(),
-        errorMessage: extractError(error)
+        errorMessage: analysis.message,
+        errorType: analysis.type
       });
     }
-    setStatus("购买失败: " + extractError(error), "error");
+    setStatus(errorMsg, "error");
   }
 }
 
 async function copyReferralLink() {
   try {
     ensureConnected();
-    const baseUrl = window.location.origin + window.location.pathname;
+    const baseUrl = getBaseUrl();
     const link = baseUrl + "?ref=" + state.account;
     await navigator.clipboard.writeText(link);
     setStatus("推荐链接已复制:\n" + link, "ok");
@@ -840,21 +1548,26 @@ async function handleAccountsChanged(accounts) {
     state.account = null;
     state.chainId = null;
     state.isAdmin = false;
+    state.lastWalletType = null;
     ui.walletAddress.textContent = "未连接";
     ui.networkName.textContent = "已断开";
     ui.boundReferrer.textContent = "-";
+    updateWalletButtonState();
     await refreshWalletMetrics();
     resetPreview();
+    renderAdminProducts();
     renderOrders();
     setStatus("钱包已断开。", "warn");
     return;
   }
-  await connectWallet();
+  const reconnectType = state.lastWalletType || "injected";
+  await connectWithWallet(reconnectType);
 }
 
 async function handleChainChanged() {
   if (state.browserProvider && state.signer) {
-    await connectWallet();
+    const reconnectType = state.lastWalletType || "injected";
+    await connectWithWallet(reconnectType);
   }
 }
 
@@ -867,14 +1580,20 @@ function initUI() {
   const ids = [
     "connectBtn", "switchBtn", "copyRefLinkBtn", "previewBtn", "approveBtn", "buyBtn",
     "amountInput", "slippageInput", "referrerInput",
+    "productGrid", "selectedProductBox", "selectedProductName", "selectedProductTag", "selectedProductDesc",
+    "selectedProductPrice", "selectedProductSku", "adminProductsSection", "productAdminList", "productStatusBox",
+    "productNameInput", "productPriceInput", "productTagInput", "productImageInput", "productDescriptionInput",
+    "saveProductBtn", "resetProductBtn",
     "customerNameInput", "customerPhoneInput", "customerAddressInput", "customerNoteInput",
     "statusBox", "orderStatusBox", "walletAddress", "networkName", "boundReferrer",
     "directAmount", "indirectAmount", "feeAmount", "costAmount", "rewardPoolAmount",
     "estimatedReward", "minimumReward", "usdtBalance", "usdtAllowance",
     "productCostBps", "rewardBps", "usdtTokenAddress", "assetTokenAddress", "assetSourceWallet",
     "ordersVisibleCount", "ordersConfirmedCount", "ordersUsdtTotal", "adminStatus",
-    "orderSearchInput", "orderStatusFilter", "refreshOrdersBtn", "exportCsvBtn", "exportJsonBtn", "ordersTableBody",
-    "revenueShareAddress", "rewarderAddress", "oracleAddress"
+    "orderSearchInput", "orderStatusFilter", "refreshOrdersBtn",
+    "exportVisibleCsvBtn", "exportVisibleJsonBtn", "exportAllCsvBtn", "exportAllJsonBtn", "ordersTableBody",
+    "revenueShareAddress", "rewarderAddress", "oracleAddress",
+    "walletModal", "closeWalletModal"
   ];
 
   ids.forEach(id => {
@@ -885,6 +1604,10 @@ function initUI() {
 async function init() {
   try {
     initUI();
+    markWalletAvailability();
+    updateWalletButtonState();
+    let initStatusMessage = "前端已加载。请连接钱包以继续。";
+    let initStatusType = "ok";
 
     // 检查 URL 参数中的推荐人
     const queryReferrer = getQueryReferrer();
@@ -899,6 +1622,9 @@ async function init() {
     if (window.ethereum) {
       window.ethereum.on("accountsChanged", handleAccountsChanged);
       window.ethereum.on("chainChanged", handleChainChanged);
+    } else if (isFileProtocol()) {
+      initStatusMessage = "当前页面是 file:// 本地文件模式。若钱包未注入，请改用本地 HTTP 服务打开，或在钱包扩展里允许访问文件网址。";
+      initStatusType = "warn";
     }
 
     // 绑定事件处理器
@@ -906,11 +1632,32 @@ async function init() {
     ui.approveBtn.addEventListener("click", approveUsdt);
     ui.buyBtn.addEventListener("click", buyNow);
     ui.refreshOrdersBtn.addEventListener("click", renderOrders);
-    ui.exportCsvBtn.addEventListener("click", () => exportOrders("csv"));
-    ui.exportJsonBtn.addEventListener("click", () => exportOrders("json"));
+    ui.exportVisibleCsvBtn.addEventListener("click", () => exportOrders("csv", "visible"));
+    ui.exportVisibleJsonBtn.addEventListener("click", () => exportOrders("json", "visible"));
+    ui.exportAllCsvBtn.addEventListener("click", () => exportOrders("csv", "all"));
+    ui.exportAllJsonBtn.addEventListener("click", () => exportOrders("json", "all"));
+    ui.saveProductBtn.addEventListener("click", saveProductFromForm);
+    ui.resetProductBtn.addEventListener("click", resetProductForm);
     ui.connectBtn.addEventListener("click", connectWallet);
     ui.switchBtn.addEventListener("click", switchToBsc);
     ui.copyRefLinkBtn.addEventListener("click", copyReferralLink);
+
+    // 钱包模态框事件
+    ui.closeWalletModal.addEventListener("click", hideWalletModal);
+    ui.walletModal.addEventListener("click", (e) => {
+      if (e.target === ui.walletModal) hideWalletModal();
+    });
+
+    // 钱包选项点击事件
+    document.querySelectorAll(".wallet-option").forEach(option => {
+      option.addEventListener("click", () => {
+        if (option.classList.contains("disabled")) {
+          return;
+        }
+        const walletType = option.getAttribute("data-wallet");
+        connectWithWallet(walletType);
+      });
+    });
 
     // 输入监听
     ui.amountInput.addEventListener("input", refreshPreview);
@@ -921,8 +1668,10 @@ async function init() {
 
     // 设置初始状态
     ui.networkName.textContent = CONFIG.chainName;
+    renderProducts();
+    renderAdminProducts();
     renderOrders();
-    setStatus("前端已加载。请连接钱包以继续。", "ok");
+    setStatus(initStatusMessage, initStatusType);
   } catch (error) {
     console.error("初始化失败:", error);
     setStatus("初始化失败: " + extractError(error), "error");
