@@ -1181,6 +1181,8 @@
           <div class="row"><span>USDT 代币</span><code id="usdtTokenAddress">-</code></div>
           <div class="row"><span>资产代币</span><code id="assetTokenAddress">-</code></div>
           <div class="row"><span>资产来源钱包</span><code id="assetSourceWallet">-</code></div>
+          <div class="row"><span>Rewarder 绑定分账合约</span><code id="rewarderRevenueShare">-</code></div>
+          <div class="row"><span>Rewarder 绑定预言机</span><code id="rewarderOracle">-</code></div>
           <div class="row"><span>奖励池余额</span><strong id="assetSourceBalance">-</strong></div>
           <div class="row"><span>奖励池授权</span><strong id="assetSourceAllowance">-</strong></div>
           <div class="row"><span>默认直推钱包</span><code id="defaultDirectWallet">-</code></div>
@@ -1230,24 +1232,14 @@
 
         <div class="status" id="productStatusBox">请连接管理员钱包后管理商品。</div>
         <div class="helper-text">
-          说明: 商品数据是前端本地版，当前浏览器保存一份。若你需要多设备同步，下一步应接数据库后台。
+          说明: 商品和订单依旧保存在当前浏览器，本页已做前端级可靠性增强；若要真正跨设备协同，下一步仍应接数据库后台。
         </div>
 
-        <!-- 管理员地址管理 -->
         <div style="margin-top: 32px; padding-top: 24px; border-top: 1px solid rgba(148, 163, 184, 0.2);">
-          <h3 style="margin: 0 0 12px; font-size: 16px;">管理员地址管理</h3>
+          <h3 style="margin: 0 0 12px; font-size: 16px;">管理员白名单</h3>
           <p class="desc" style="font-size: 13px; margin-bottom: 12px;">
-            添加其他钱包地址为管理员，这些地址将拥有查看和管理所有订单的权限。
+            生产模式下，管理员权限只信任链上合约 owner 与前端配置白名单，不再允许浏览器本地手动添加，避免被伪造管理员权限。
           </p>
-          <div class="field-grid">
-            <label class="field" style="flex: 1;">
-              <span class="label">新管理员地址</span>
-              <input id="newAdminAddressInput" type="text" placeholder="0x..." />
-            </label>
-            <div style="display: flex; align-items: flex-end;">
-              <button class="secondary" id="addAdminBtn" style="height: 44px;">添加管理员</button>
-            </div>
-          </div>
           <div class="admin-list" id="adminList" style="margin-top: 12px;">
             <!-- 动态渲染管理员列表 -->
           </div>
@@ -1274,7 +1266,7 @@
       <div class="card">
         <h2>订单中心</h2>
         <p class="desc">
-          订单在购买成功后保存在浏览器本地。管理员可以查看、搜索、更新状态和导出记录。
+          订单会保存在浏览器本地，并在页面加载或手动刷新时按交易哈希自动对账链上状态。管理员可以查看、搜索、更新状态和导出记录。
         </p>
 
         <div class="stats">
